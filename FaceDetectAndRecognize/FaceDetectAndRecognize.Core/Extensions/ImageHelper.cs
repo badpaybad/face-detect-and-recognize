@@ -58,6 +58,8 @@ namespace FaceDetectAndRecognize.Core.Extensions
             if (pathFile.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)) return FileType.Jpeg;
             if (pathFile.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)) return FileType.Jpeg;
             if (pathFile.EndsWith(".gif", StringComparison.OrdinalIgnoreCase)) return FileType.Gif;
+            if (pathFile.EndsWith(".bmp", StringComparison.OrdinalIgnoreCase)) return FileType.Bmp;
+            if (pathFile.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) return FileType.Png;
 
             using (var m = new MemoryStream())
             {
@@ -68,6 +70,20 @@ namespace FaceDetectAndRecognize.Core.Extensions
                 }
             }
 
+        }
+
+        public static List<string> GetImageOnly(params string[] files)
+        {
+            List<string> res = new List<string>();
+
+            foreach (var f in files)
+            {
+                var t = GetKnownFileType(f);
+                if (t == FileType.Bmp || t == FileType.Gif || t == FileType.Png || t == FileType.Jpeg)
+                { res.Add(f); }
+            }
+
+            return res;
         }
     }
 }

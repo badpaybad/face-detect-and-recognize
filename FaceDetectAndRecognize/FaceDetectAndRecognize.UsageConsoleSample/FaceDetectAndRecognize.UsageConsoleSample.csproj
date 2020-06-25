@@ -9,4 +9,13 @@
     <ProjectReference Include="..\FaceDetectAndRecognize.Core\FaceDetectAndRecognize.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Reference Include="Emgu.CV.Platform.NetFramework">
+      <HintPath>..\FaceDetectAndRecognize.Core\dll\Emgu.CV.Platform.NetFramework.dll</HintPath>
+    </Reference>
+    <Reference Include="Emgu.CV.Platform.NetStandard">
+      <HintPath>..\FaceDetectAndRecognize.Core\dll\Emgu.CV.Platform.NetStandard.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
 </Project>
