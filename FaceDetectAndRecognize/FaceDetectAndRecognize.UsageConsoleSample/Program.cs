@@ -64,6 +64,13 @@ namespace FaceDetectAndRecognize.UsageConsoleSample
             }
             imgInput3jpg.Save(file3jpg + $".faceDetected.jpg");
 
+            int couter = 0;
+            while(true)
+            {
+                if (couter >= 60) continue;
+
+                
+            }    
 
 
             Console.WriteLine("Enter to quit");

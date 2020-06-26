@@ -29,6 +29,28 @@ namespace FaceDetectAndRecognize.Core
         Image<Bgr, Byte> _imgOrigin;
         string _imgOriginFileExt;
         string _fileName;
+        static CascadeClassifier _faceDetector;
+        static CascadeClassifier _eyeLeftDetector;
+        static CascadeClassifier _eyeRightDetector;
+        static Emgu.CV.Dnn.Net _dnnNetCaffe;
+        static FaceDetection()
+        {
+            _faceDetector = new CascadeClassifier(
+               Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+               "emgumodel/haarcascade_frontalface_default.xml"
+               //"emgumodel/haarcascade_frontalcatface.xml"
+               ));
+
+            _eyeLeftDetector = new CascadeClassifier(
+                   Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "emgumodel/haarcascade_lefteye_2splits.xml"));
+            _eyeRightDetector = new CascadeClassifier(
+                      Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "emgumodel/haarcascade_righteye_2splits.xml"));
+
+            _dnnNetCaffe = Emgu.CV.Dnn.DnnInvoke.ReadNetFromCaffe(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dnnmodel/deploy.prototxt.txt")
+             , Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dnnmodel/res10_300x300_ssd_iter_140000.caffemodel")
+             //, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dnnmodel/face_model.caffemodel")
+             );
+        }
 
         public List<KeyValuePair<Image<Bgr, byte>, Rectangle>> DetectByHaarCascade(Image<Bgr, byte> imgInput)
         {
@@ -38,40 +60,24 @@ namespace FaceDetectAndRecognize.Core
 
             List<KeyValuePair<Image<Bgr, byte>, Rectangle>> faces = new List<KeyValuePair<Image<Bgr, byte>, Rectangle>>();
 
+            //Detect the faces  from the gray scale image and store the locations as rectangle                   
+            Rectangle[] facesDetected = _faceDetector.DetectMultiScale(faceInput, 1.05, 2, new Size(10, 10));
 
-            using (CascadeClassifier faceDetector = new CascadeClassifier(
-                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                "emgumodel/haarcascade_frontalface_default.xml"
-                //"emgumodel/haarcascade_frontalcatface.xml"
-                )))
+            foreach (var r in facesDetected)
             {
-                //Detect the faces  from the gray scale image and store the locations as rectangle                   
-                Rectangle[] facesDetected = faceDetector.DetectMultiScale(faceInput, 1.05, 2, new Size(10, 10));
-
-                foreach (var r in facesDetected)
-                {
-                    faces.Add(new KeyValuePair<Image<Bgr, byte>, Rectangle>(imgInput.GetSubRect(r), r));
-                }
+                faces.Add(new KeyValuePair<Image<Bgr, byte>, Rectangle>(imgInput.GetSubRect(r), r));
             }
 
             List<KeyValuePair<Image<Bgr, byte>, Rectangle>> founds = new List<KeyValuePair<Image<Bgr, byte>, Rectangle>>();
 
-            using (CascadeClassifier eyeLeftDetector = new CascadeClassifier(
-                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "emgumodel/haarcascade_lefteye_2splits.xml")))
-            {
-                using (CascadeClassifier eyeRightDetector = new CascadeClassifier(
-                        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "emgumodel/haarcascade_righteye_2splits.xml")))
-                {
-                    foreach (var f in faces)
-                    {
-                        Rectangle[] eyeL = eyeLeftDetector.DetectMultiScale(f.Key, 1.05, 2, new Size(10, 10));
-                        Rectangle[] eyeR = eyeRightDetector.DetectMultiScale(f.Key, 1.05, 2, new Size(10, 10));
-                        if (eyeL.Length > 0 || eyeR.Length > 0)
-                        {
-                            founds.Add(f);
-                        }
-                    }
 
+            foreach (var f in faces)
+            {
+                Rectangle[] eyeL = _eyeLeftDetector.DetectMultiScale(f.Key, 1.05, 2, new Size(10, 10));
+                Rectangle[] eyeR = _eyeRightDetector.DetectMultiScale(f.Key, 1.05, 2, new Size(10, 10));
+                if (eyeL.Length > 0 || eyeR.Length > 0)
+                {
+                    founds.Add(f);
                 }
             }
             //if (founds.Count == 0) return faces;
@@ -89,21 +95,16 @@ namespace FaceDetectAndRecognize.Core
 
             //https://github.com/emgucv/emgucv/issues/223
 
-            Emgu.CV.Dnn.Net netCaffe = Emgu.CV.Dnn.DnnInvoke.ReadNetFromCaffe(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dnnmodel/deploy.prototxt.txt")
-                , Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dnnmodel/res10_300x300_ssd_iter_140000.caffemodel")
-                //, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dnnmodel/face_model.caffemodel")
-                );
-
             Size size = new Size(300, 300);
             MCvScalar scalar = new MCvScalar(104, 117, 123);
 
             Mat blob = Emgu.CV.Dnn.DnnInvoke.BlobFromImage(imgInput.Mat, 0.85, size, scalar);
 
             //netCaffe.SetInput(blob, "data");
-            netCaffe.SetInput(blob);
+            _dnnNetCaffe.SetInput(blob);
 
             //Mat prob = netCaffe.Forward("detection_out");
-            Mat prob = netCaffe.Forward();
+            Mat prob = _dnnNetCaffe.Forward();
             //https://www.died.tw/2017/11/opencv-dnn-speed-compare-in-python-c-c.html
 
             //string[] Labels = { "background", "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor" };
