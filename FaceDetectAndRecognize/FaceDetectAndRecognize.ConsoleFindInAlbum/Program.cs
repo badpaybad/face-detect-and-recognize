@@ -31,11 +31,13 @@ namespace FaceDetectAndRecognize.ConsoleFindInAlbum
                     var folderAlbum = Path.Combine(dirRoot, $"{rid}/{iid}/album");
                     var folderResult = Path.Combine(dirRoot, $"{rid}/{iid}/result");
                     if (Directory.Exists(folderResult)) Directory.Delete(folderResult, true);
+                 
                     CreateDirIfNotExist(folderAlbum, folderFace, folderResult);
 
                     var listFace = Directory.GetFiles(folderFace);
                     var listPhoto = Directory.GetFiles(folderAlbum);
 
+                   
                     if (listFace.Length == 0 || listPhoto.Length == 0)
                     {
                         continue;
@@ -49,6 +51,7 @@ namespace FaceDetectAndRecognize.ConsoleFindInAlbum
                     }
                     faceRekognize.WithThreshold(3000, 44);
                     faceRekognize.Train();
+                    var csv = "id,Eigen,Lbph,Fisher,detected,face,photo\r\n";
 
                     foreach (var photo in listPhoto)
                     {
@@ -58,18 +61,25 @@ namespace FaceDetectAndRecognize.ConsoleFindInAlbum
                         if (result.Count > 0)
                         {
                             Console.WriteLine(photo);
-                           
+
+                            string detectedPhoto = Path.Combine(folderResult, "detected_" + pInfo.Name);
                             foreach (var r in result)
                             {
-                                r.Face.Save(Path.Combine(folderResult, $"{pInfo.Name}_id{r.EigenResult.Label}_e{r.EigenResult.Distance}_l{r.LbphResult.Distance}_f{r.FisherResult.Distance}_{pInfo.Name}"));
-                                pOrigin.Draw(r.Position, new Bgr(Color.Red), 3);
-                            }
+                                string faceDetected = Path.Combine(folderResult, $"{pInfo.Name}_id{r.EigenResult.Label}_e{r.EigenResult.Distance}_l{r.LbphResult.Distance}_f{r.FisherResult.Distance}_{pInfo.Name}");
+                                r.Face.Save(faceDetected);
+                                pOrigin.Draw(r.Position, new Bgr(Color.Black), 3);
+                                pOrigin.Draw(r.Position, new Bgr(Color.Yellow), 1);
 
-                            pOrigin.Save(Path.Combine(folderResult, pInfo.Name + pInfo.Name));
-
-                          
+                                csv += $"{iid},{r.EigenResult.Distance},{r.LbphResult.Distance},{r.FisherResult.Distance},{detectedPhoto},{faceDetected},{photo}\r\n";
+                            }   
+                            pOrigin.Save(detectedPhoto);                                               
                         }
                     }
+
+                    var sw=new StreamWriter(Path.Combine(folderResult, "result.csv"),false);
+                    sw.Write(csv);
+                    sw.Flush();
+                    sw.Close();
                 }
             }
 
