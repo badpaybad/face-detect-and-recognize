@@ -19,14 +19,18 @@ namespace FaceDetectAndRecognize.Core
         string _studentDirFace;
         string _studentDirAlbum;
         string _studentDirResult;
-        FaceRecognizer _eigenRecognizer;
 
         double _eigenThreshold = 2500.0;
         double _lbphThreshold = 44.0;
 
         List<Image<Gray, byte>> _dataTrain = new List<Image<Gray, byte>>();
+
+
+        EigenFaceRecognizer _eigenRecognizer;
         private LBPHFaceRecognizer _lbphRecognizer;
         private FisherFaceRecognizer _fisherRecognizer;
+
+        FaceDetection _faceDetection = new FaceDetection();
 
         int _trainSizeWidth = 0;
         int _trainSizeHeight = 0;
@@ -37,7 +41,6 @@ namespace FaceDetectAndRecognize.Core
         {
             _id = id;
         }
-
        
         public FaceRecognition(string studentDir, string studentDirFace, string studentDirAlbum, string studentDirResult)
         {
@@ -79,7 +82,7 @@ namespace FaceDetectAndRecognize.Core
             {
                 _face.Add(img);
 
-                var foundFace = new FaceDetection().DetectByHaarCascade(img);
+                var foundFace = _faceDetection.DetectByHaarCascade(img);
 
                 foreach (var x in foundFace)
                 {
@@ -195,7 +198,7 @@ namespace FaceDetectAndRecognize.Core
 
         public List<FaceDetection.Result> RecognizePhoto(Image<Bgr, byte> photo)
         {
-            var faceInPhoto = new FaceDetection().DetectByDnnCaffe(photo);
+            var faceInPhoto = _faceDetection.DetectByDnnCaffe(photo);
 
             //var refilter = new List<KeyValuePair<Image<Bgr, byte>, Rectangle>>();
 
