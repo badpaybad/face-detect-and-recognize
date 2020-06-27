@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Configuration.ConfigurationManager" Version="4.7.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FaceDetectAndRecognize.Core\FaceDetectAndRecognize.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Emgu.CV.Platform.NetStandard">
+      <HintPath>..\FaceDetectAndRecognize.Core\dll\Emgu.CV.Platform.NetStandard.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

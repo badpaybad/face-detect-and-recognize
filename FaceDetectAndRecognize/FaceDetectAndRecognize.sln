@@ -3,9 +3,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.30204.135
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FaceDetectAndRecognize.Core", "FaceDetectAndRecognize.Core\FaceDetectAndRecognize.Core.csproj", "{96362588-AECE-4690-8877-A019DB869205}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "FaceDetectAndRecognize.Core", "FaceDetectAndRecognize.Core\FaceDetectAndRecognize.Core.csproj", "{96362588-AECE-4690-8877-A019DB869205}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FaceDetectAndRecognize.UsageConsoleSample", "FaceDetectAndRecognize.UsageConsoleSample\FaceDetectAndRecognize.UsageConsoleSample.csproj", "{8A26A41D-CDE8-44F3-8157-6F6ED168E312}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "FaceDetectAndRecognize.UsageConsoleSample", "FaceDetectAndRecognize.UsageConsoleSample\FaceDetectAndRecognize.UsageConsoleSample.csproj", "{8A26A41D-CDE8-44F3-8157-6F6ED168E312}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FaceDetectAndRecognize.ConsoleFindInAlbum", "FaceDetectAndRecognize.ConsoleFindInAlbum\FaceDetectAndRecognize.ConsoleFindInAlbum.csproj", "{7C661A72-39BE-4542-881E-5A7D151B04D7}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -21,6 +23,10 @@ Global
 		{8A26A41D-CDE8-44F3-8157-6F6ED168E312}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8A26A41D-CDE8-44F3-8157-6F6ED168E312}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8A26A41D-CDE8-44F3-8157-6F6ED168E312}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7C661A72-39BE-4542-881E-5A7D151B04D7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7C661A72-39BE-4542-881E-5A7D151B04D7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7C661A72-39BE-4542-881E-5A7D151B04D7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7C661A72-39BE-4542-881E-5A7D151B04D7}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

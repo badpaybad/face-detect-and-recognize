@@ -19,9 +19,9 @@ namespace FaceDetectAndRecognize.Core
         {
             public Image<Bgr, Byte> Face { get; set; }
             public Rectangle Position { get; set; }
-            public FaceRecognizer.PredictionResult EigenResult { get; set; }
-            public FaceRecognizer.PredictionResult FisherResult { get; set; }
-            public FaceRecognizer.PredictionResult LbphResult { get; set; }
+            public FaceRecognizer.PredictionResult EigenResult { get; set; } = new FaceRecognizer.PredictionResult();
+            public FaceRecognizer.PredictionResult FisherResult { get; set; } = new FaceRecognizer.PredictionResult();
+            public FaceRecognizer.PredictionResult LbphResult { get; set; } = new FaceRecognizer.PredictionResult();
         }
 
         //http://www.emgu.com/wiki/index.php/Camera_Capture_in_7_lines_of_code
