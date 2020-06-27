@@ -3,6 +3,7 @@ using Emgu.CV.Structure;
 using FaceDetectAndRecognize.Core;
 using System;
 using System.Configuration;
+using System.Drawing;
 using System.IO;
 
 namespace FaceDetectAndRecognize.ConsoleFindInAlbum
@@ -13,8 +14,9 @@ namespace FaceDetectAndRecognize.ConsoleFindInAlbum
         {
             Console.WriteLine("Hello World!");
 
-
-            var dirRoot = ConfigurationManager.AppSettings["DirRoot"];
+            var dirRoot = "C:/PublishGetDataForVideoKo/ko";// ConfigurationManager.AppSettings["DirRoot"];
+            
+            CreateDirIfNotExist(dirRoot);
 
             var rootIds = Directory.GetDirectories(dirRoot);
 
@@ -28,7 +30,7 @@ namespace FaceDetectAndRecognize.ConsoleFindInAlbum
                     var folderFace = Path.Combine(dirRoot, $"{rid}/{iid}/face");
                     var folderAlbum = Path.Combine(dirRoot, $"{rid}/{iid}/album");
                     var folderResult = Path.Combine(dirRoot, $"{rid}/{iid}/result");
-
+                    if (Directory.Exists(folderResult)) Directory.Delete(folderResult, true);
                     CreateDirIfNotExist(folderAlbum, folderFace, folderResult);
 
                     var listFace = Directory.GetFiles(folderFace);
@@ -55,16 +57,17 @@ namespace FaceDetectAndRecognize.ConsoleFindInAlbum
                         var result = faceRekognize.RecognizePhoto(pOrigin);
                         if (result.Count > 0)
                         {
-                            string dirFaceOfPhoto = Path.Combine(folderResult, pInfo.Name);
-
-                            CreateDirIfNotExist(dirFaceOfPhoto);
-
+                            Console.WriteLine(photo);
+                           
                             foreach (var r in result)
                             {
-                                r.Face.Save(Path.Combine(dirFaceOfPhoto, $"id{r.EigenResult.Label}_e{r.EigenResult.Distance}_l{r.LbphResult.Distance}_f{r.FisherResult.Distance}_{pInfo.Name}"));
+                                r.Face.Save(Path.Combine(folderResult, $"{pInfo.Name}_id{r.EigenResult.Label}_e{r.EigenResult.Distance}_l{r.LbphResult.Distance}_f{r.FisherResult.Distance}_{pInfo.Name}"));
+                                pOrigin.Draw(r.Position, new Bgr(Color.Red), 3);
                             }
 
-                            pOrigin.Save(Path.Combine(folderResult, pInfo.Name));
+                            pOrigin.Save(Path.Combine(folderResult, pInfo.Name + pInfo.Name));
+
+                          
                         }
                     }
                 }
