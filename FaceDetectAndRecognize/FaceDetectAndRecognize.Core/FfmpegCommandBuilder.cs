@@ -110,7 +110,8 @@ namespace FaceDetectAndRecognize.Core
         decimal _overlayPosY;
         int _overlayBorderSize = 0;
         string _overlayBorderColor = "black";
-        public FfmpegCommandBuilder WithFileOverlay(string fileOverlay, decimal fromSeconds, decimal duration, string scale, decimal posX, decimal posY, int borderSize = 0, string borderColor = "black")
+        int _overlayRoate;
+        public FfmpegCommandBuilder WithFileOverlay(string fileOverlay, decimal fromSeconds, decimal duration, string scale, decimal posX, decimal posY, int borderSize = 0, string borderColor = "black", int overlayRotate = 0)
         {
             _overlayBorderSize = borderSize;
             _overlayBorderColor = borderColor;
@@ -119,9 +120,10 @@ namespace FaceDetectAndRecognize.Core
             _overlayDuration = duration;
             _overlayFromSeconds = fromSeconds;
             _overlayScale = scale;
-          
+
             _overlayPosX = posX;
             _overlayPosY = posY;
+            _overlayRoate = overlayRotate;
             return this;
         }
 
@@ -168,7 +170,7 @@ namespace FaceDetectAndRecognize.Core
         /// <param name="fadeDuration"></param>
         /// <param name="fadeMode">fade, wipeleft, wiperight, wipeup, wipedown, slideleft, slideright, slideup, slidedown, circlecrop, rectcrop, distance, fadeblack, fadewhite, radial, smoothleft, smoothright, smoothup, smoothdown, circleopen, circleclose, vertopen, vertclose, horzopen, horzclose, dissolve, pixelize, diagtl, diagtr, diagbl, diagbr, hlslice, hrslice, vuslice, vdslice</param>
         /// <returns></returns>
-        public FfmpegCommandBuilder WithTransitionNext(string fileVideoNext, decimal fadeFileDuration, int fadeDuration, string fadeMode="")
+        public FfmpegCommandBuilder WithTransitionNext(string fileVideoNext, decimal fadeFileDuration, int fadeDuration, string fadeMode = "")
         {
             _fadeFileDuration = fadeFileDuration;
             _fadeDuration = fadeDuration;
@@ -212,15 +214,15 @@ namespace FaceDetectAndRecognize.Core
                 switch (_overlayFileType)
                 {
                     case FileType.Mp4:
-                        CmdText = BuildVideoOverlayCommand(InputFile, OutputFile, _overlayFile, _overlayFromSeconds, _overlayDuration, _overlayScale, _overlayPosX, _overlayPosY,_overlayBorderSize,_overlayBorderColor);
+                        CmdText = BuildVideoOverlayCommand(InputFile, OutputFile, _overlayFile, _overlayFromSeconds, _overlayDuration, _overlayScale, _overlayPosX, _overlayPosY, _overlayBorderSize, _overlayBorderColor, _overlayRoate);
                         break;
                     case FileType.Gif:
-                        CmdText = BuildGiftOverlayCommand(InputFile, OutputFile, _overlayFile, _overlayFromSeconds, _overlayDuration, _overlayScale, _overlayPosX, _overlayPosY);
+                        CmdText = BuildGiftOverlayCommand(InputFile, OutputFile, _overlayFile, _overlayFromSeconds, _overlayDuration, _overlayScale, _overlayPosX, _overlayPosY, _overlayRoate);
                         break;
                     case FileType.Bmp:
                     case FileType.Jpeg:
                     case FileType.Png:
-                        CmdText = BuildImageOverlayCommand(InputFile, OutputFile, _overlayFile, OutputDuration, _overlayFromSeconds, _overlayDuration, _overlayScale, _overlayPosX, _overlayPosY); ;
+                        CmdText = BuildImageOverlayCommand(InputFile, OutputFile, _overlayFile, OutputDuration, _overlayFromSeconds, _overlayDuration, _overlayScale, _overlayPosX, _overlayPosY, _overlayRoate); ;
                         break;
                 }
             }
@@ -352,20 +354,28 @@ namespace FaceDetectAndRecognize.Core
             return cmd;
         }
 
-        public string BuildImageOverlayCommand(string fileInput, string fileOutput, string fileImageOverlay, decimal videoDuration, decimal fromSeconds, decimal duration, string scale, decimal x, decimal y)
+        public string BuildImageOverlayCommand(string fileInput, string fileOutput, string fileImageOverlay, decimal videoDuration, decimal fromSeconds, decimal duration, string scale, decimal x, decimal y, int rotate)
         {
             string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "window/ffmpeg/bin");
             var fileAudioSilence = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "window/ffmpeg/bin/silence.mp3");
 
             string ffmpegCmd = Path.Combine(dir, "ffmpeg.exe");
-
+            string tempScale = "";
+            if (!string.IsNullOrEmpty(scale))
+            {
+                tempScale = $"scale={scale},";
+            }
             string enableDuration = string.Empty;
             if (duration != 0)
             {
                 enableDuration = $":enable='between(t, {fromSeconds}, {fromSeconds + duration})'";
             }
-
-            string cmd = $"\"{ffmpegCmd}\" -y -i \"{fileInput}\" -loop 1 -t {videoDuration} -i \"{fileImageOverlay}\" -t {duration} -i \"{fileAudioSilence}\" -filter_complex \"[1:v]{_fps},scale={scale},setsar=1[ovrl];[0:v][ovrl]overlay = {x}:{y}{enableDuration}[v]\" -map \"[v]\" -map 2:a -shortest \"{fileOutput}\"";
+            var rotateFilter = "[ovrl]";
+            if (rotate != 0)
+            {
+                rotateFilter = $"[xsc];[xsc]rotate={rotate}*PI/180:c=none:ow=rotw(iw):oh=roth(ih)[ovrl]";
+            }
+            string cmd = $"\"{ffmpegCmd}\" -y -i \"{fileInput}\" -loop 1 -t {videoDuration} -i \"{fileImageOverlay}\" -t {duration} -i \"{fileAudioSilence}\" -filter_complex \"[1:v]{_fps},{tempScale}setsar=1{rotateFilter};[0:v][ovrl]overlay = {x}:{y}{enableDuration}[v]\" -map \"[v]\" -map 2:a -shortest \"{fileOutput}\"";
 
             return cmd;
         }
@@ -402,7 +412,7 @@ namespace FaceDetectAndRecognize.Core
             return cmd;
         }
 
-        public string BuildGiftOverlayCommand(string fileInput, string fileOutput, string fileGiftOverlay, decimal fromSeconds, decimal duration, string scale, decimal x, decimal y)
+        public string BuildGiftOverlayCommand(string fileInput, string fileOutput, string fileGiftOverlay, decimal fromSeconds, decimal duration, string scale, decimal x, decimal y, int rotate)
         {
             string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "window/ffmpeg/bin");
             var fileAudioSilence = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "window/ffmpeg/bin/silence.mp3");
@@ -418,22 +428,36 @@ namespace FaceDetectAndRecognize.Core
                 enableDuration = $":enable='between(t, {fromSeconds}, {fromSeconds + duration})'";
             }
 
+            var rotateFilter = "[ovrl]";
+            if (rotate != 0)
+            {
+                rotateFilter = $"[xsc];[xsc]rotate={rotate}*PI/180:c=none:ow=rotw(iw):oh=roth(ih)[ovrl]";
+            }
+
             string ffmpegCmd = Path.Combine(dir, "ffmpeg.exe");
 
-            string cmd = $"\"{ffmpegCmd}\" -y -i \"{fileInput}\" -ignore_loop 0 -i \"{fileGiftOverlay}\" -t {duration} -i \"{fileAudioSilence}\" -filter_complex \"[1:v]{_fps},{tempScale}setsar=1[ovrl];[0:v][ovrl]overlay = {x}:{y}{enableDuration}[v]\" -map \"[v]\" -map 2:a -shortest \"{fileOutput}\"";
+            string cmd = $"\"{ffmpegCmd}\" -y -i \"{fileInput}\" -ignore_loop 0 -i \"{fileGiftOverlay}\" -t {duration} -i \"{fileAudioSilence}\" -filter_complex \"[1:v]{_fps},{tempScale}setsar=1{rotateFilter};[0:v][ovrl]overlay = {x}:{y}{enableDuration}[v]\" -map \"[v]\" -map 2:a -shortest \"{fileOutput}\"";
 
             return cmd;
         }
 
-        public string BuildVideoOverlayCommand(string fileInput, string fileOutput, string fileGiftOverlay, decimal fromSeconds, decimal duration, string scale, decimal x, decimal y, int borderSize=0, string borderColor="black")
+        public string BuildVideoOverlayCommand(string fileInput, string fileOutput, string fileGiftOverlay, decimal fromSeconds, decimal duration, string scale, decimal x, decimal y, int borderSize, string borderColor, int rotate)
         {
             string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "window/ffmpeg/bin");
 
             var border = string.Empty;
             if (borderSize != 0)
             {
-                
+
             }
+            if (string.IsNullOrEmpty(borderColor)) borderColor = "black";
+
+            var rotateFilter = "[ovrl]";
+            if (rotate != 0)
+            {
+                rotateFilter = $"[xsc];[xsc]rotate={rotate}*PI/180:c=none:ow=rotw(iw):oh=roth(ih)[ovrl]";
+            }
+
             var fileAudioSilence = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "window/ffmpeg/bin/silence.mp3");
 
             var enableDuration = string.Empty;
@@ -449,7 +473,7 @@ namespace FaceDetectAndRecognize.Core
 
             string ffmpegCmd = Path.Combine(dir, "ffmpeg.exe");
 
-            string cmd = $"\"{ffmpegCmd}\" -y -i \"{fileInput}\" -stream_loop {duration} -i \"{fileGiftOverlay}\" -t {duration} -i \"{fileAudioSilence}\" -filter_complex \"[1:v]{_fps},{tempScale}setsar=1[ovrl];[0:v][ovrl]overlay={x}:{y}{enableDuration}[v]\" -map \"[v]\" -map 2:a -shortest \"{fileOutput}\"";
+            string cmd = $"\"{ffmpegCmd}\" -y -i \"{fileInput}\" -stream_loop {duration} -i \"{fileGiftOverlay}\" -t {duration} -i \"{fileAudioSilence}\" -filter_complex \"[1:v]{_fps},{tempScale}setsar=1{rotateFilter};[0:v][ovrl]overlay={x}:{y}{enableDuration}[v]\" -map \"[v]\" -map 2:a -shortest \"{fileOutput}\"";
 
             return cmd;
         }
@@ -464,7 +488,8 @@ namespace FaceDetectAndRecognize.Core
 
             var fileAudioSilence = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "window/ffmpeg/bin/silence.mp3");
 
-            var filterScaleImage = $"[0:v]scale={_videoScale}:force_original_aspect_ratio=decrease,pad={_videoScale}:(ow-iw)/2:(oh-ih)/2,setsar=1,{_fps}[v0]";
+            //var filterScaleImage = $"[0:v]scale={_videoScale}:force_original_aspect_ratio=decrease,pad={_videoScale}:(ow-iw)/2:(oh-ih)/2,setsar=1,{_fps}[v0]";
+            var filterScaleImage = $"[0:v]scale={_videoScale},setsar=1,{_fps}[v0]";
 
             string cmd = $"\"{ffmpegCmd}\" -y {loopInput} -t {duration} -i \"{fileAudioSilence}\" -filter_complex \"{filterScaleImage};[v0]format=yuv420p[v]\" -map \"[v]\" -map 1:a \"{fileOutput}\"";
 
