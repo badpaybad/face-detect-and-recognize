@@ -9,7 +9,7 @@ namespace FaceDetectAndRecognize.Core
         /// </summary>
         public bool Success { get; set; }
 
-        public string Output { get; set; }
+        public string CmdOutput { get; set; }
 
         public long ConvertInMiliseconds { get; set; }
         public string FfmpegCmd { get;  set; }

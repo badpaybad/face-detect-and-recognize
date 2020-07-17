@@ -12,9 +12,7 @@ namespace FaceDetectAndRecognize.Core
     {
         static FfmpegCommandExecuter()
         {
-            //var ping = new FfmpegCommandRunner().InternalRun($"\"{Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "window/ffmpeg/bin")}/ffmpeg.exe\" -version" ,"ffmpeg -version");
 
-            //Console.WriteLine(ping.Output);
         }
 
         public FfmpegConvertedResult Run(FfmpegCommandLine cmd)
@@ -23,7 +21,6 @@ namespace FaceDetectAndRecognize.Core
             {
                 throw new Exception("Not valid ffmpeg command, because the commandline over 8000 character");
             }
-
             List<FfmpegConvertedResult> subResult = new List<FfmpegConvertedResult>();
 
             List<string> tempCmd = new List<string>();
@@ -48,24 +45,6 @@ namespace FaceDetectAndRecognize.Core
 
             if (cmd.CommandsToConvert != null && cmd.CommandsToConvert.Count > 0)
             {
-                //var group = cmd.CommandsToConvert.GroupBy(i => i.GroupOrder).Select(m => new { GroupOrder = m.Key, Cmds = m.DefaultIfEmpty() });
-                //foreach (var g in group)
-                //{
-                //    g.Cmds.ToList().SplitToRun(3, (itms, idx) =>
-                //    {
-                //        List<Task<FfmpegConvertedResult>> cmdTask = new List<Task<FfmpegConvertedResult>>();
-                //        foreach (var itm in itms)
-                //        {
-                //            tempCmd.Add(itm.FfmpegCommand);
-                //            cmdTask.Add(Task<FfmpegCommandLine>.Run(() =>
-                //            {
-                //                return InternalRun(itm.FfmpegCommand, itm.FileOutput);
-                //            }));
-                //        }
-
-                //        subResult.AddRange(Task.WhenAll(cmdTask).GetAwaiter().GetResult());
-                //    });
-                //}
                 foreach (var subCmd in cmd.CommandsToConvert)
                 {
                     FfmpegConvertedResult cmdSubRes = InternalRun(subCmd.FfmpegCommand, subCmd.FileOutput);
@@ -106,10 +85,6 @@ namespace FaceDetectAndRecognize.Core
 
             return mainCmdResult;
         }
-        //public FfmpegCommandResult RunCmd(string cmdLine, string fileOutput)
-        //{
-        //    return InternalRun(cmdLine, fileOutput);
-        //}
 
         private FfmpegConvertedResult InternalRun(string cmdLine, string fileOutput)
         {
@@ -183,10 +158,21 @@ namespace FaceDetectAndRecognize.Core
             {
                 Console.WriteLine("WARNING: " + fileOutput);
             }
+
+            if (File.Exists(fileOutput) == false)
+            {
+                isOk = false;
+                Console.WriteLine($"ERROR: Covert failed, not found file: {fileOutput}");
+            }
+            else
+            {
+                isOk = true;
+            }
+
             return new FfmpegConvertedResult
             {
                 ConvertInMiliseconds = sw.ElapsedMilliseconds,
-                Output = outstring,
+                CmdOutput = outstring,
                 Success = isOk,
                 FfmpegCmd = cmdLine
             };
@@ -213,6 +199,8 @@ namespace FaceDetectAndRecognize.Core
             return output;
         }
     }
+
+
 }
 
 /* 

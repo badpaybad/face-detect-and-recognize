@@ -40,7 +40,7 @@ namespace FaceDetectAndRecognize.UsageConsoleSample
 
             //ffmpeg
 
-            var ffmpegConvertToVid = new FfmpegCommandBuilder()
+            var ffmpegConvertToVid = new FFmpegCommandBuilder()
                 .WithInputFile(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "sampledata/intro.gif"), 5)
                 .WithOutput(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "sampledata/intro.mp4"))
                 .WithOutDuration(5)
