@@ -13,7 +13,7 @@ namespace FaceDetectAndRecognize.Core
 {
     //https://docs.opencv.org/2.4/modules/contrib/doc/facerec/facerec_tutorial.html
     //https://csharp.hotexamples.com/examples/Emgu.CV/EigenObjectRecognizer/-/php-eigenobjectrecognizer-class-examples.html
-    public class FaceDetection
+    public class FaceDetection:IDisposable
     {
         public class Result
         {
@@ -426,6 +426,10 @@ namespace FaceDetectAndRecognize.Core
             }
 
             return resultFound;
+        }
+
+        public void Dispose()
+        {
         }
 
         #endregion
