@@ -53,7 +53,7 @@ namespace FaceDetectAndRecognize.Core
         /// </summary>
         /// <param name="faceToTrain"></param>
         /// <returns></returns>
-        public FaceRecognitionCombination Train(List<FaceDataTrain> faceToTrain, out string eigenModelFile, out string lbphModelFile)
+        public FaceRecognitionCombination TrainOrLoadModel(List<FaceDataTrain> faceToTrain, out string eigenModelFile, out string lbphModelFile)
         {
             _originImageToTrain = faceToTrain;
 
@@ -142,6 +142,14 @@ namespace FaceDetectAndRecognize.Core
             var faces = DetectFace(photo);
             List<Result> results = new List<Result>();
 
+            if (_faceWidth == 0)
+            {
+                _faceWidth = faces.Select(i => i.Key.Width).Sum() / faces.Count;
+            }
+            if (_faceHeight == 0)
+            {
+                _faceHeight = faces.Select(i => i.Key.Height).Sum() / faces.Count;
+            }
             foreach (var f1 in faces)
             {
                 var f = f1;
@@ -229,7 +237,7 @@ namespace FaceDetectAndRecognize.Core
                 }
             }
 
-            rekognitionCombind.Train(fileFaceToTrain.Select(i => new FaceDataTrain { Face = new Image<Bgr, byte>(i.Key), Identity = i.Value }).ToList(), out string eigenFileModel, out string lbphFileModel);
+            rekognitionCombind.TrainOrLoadModel(fileFaceToTrain.Select(i => new FaceDataTrain { Face = new Image<Bgr, byte>(i.Key), Identity = i.Value }).ToList(), out string eigenFileModel, out string lbphFileModel);
 
             var csvFileResult = Path.Combine(schoolDir, $"result_{schoolId}.csv");
             if (File.Exists(csvFileResult) == false)
