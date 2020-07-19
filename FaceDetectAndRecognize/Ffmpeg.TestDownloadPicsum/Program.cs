@@ -20,9 +20,10 @@ namespace Ffmpeg.TestDownloadPicsum
         static DateTime _start;
         static string _dirTemp;
 
+        static ConcurrentQueue<string> _queueUrl = new ConcurrentQueue<string>();
         static ConcurrentQueue<byte[]> _queueDownloadedUrl = new ConcurrentQueue<byte[]>();
 
-        static ConcurrentQueue<MemoryStream> _queeuResizedImage = new ConcurrentQueue<MemoryStream>();
+         static ConcurrentQueue<MemoryStream> _queeuResizedImage = new ConcurrentQueue<MemoryStream>();
 
         static List<long> _timeDownloads = new List<long>();
         static List<long> _timeResize = new List<long>();
@@ -30,12 +31,17 @@ namespace Ffmpeg.TestDownloadPicsum
 
         static int _totalItem = 1000;
 
-        static int _batchDownload = 10;
+        static int _batchDownload = 20;
 
-        static int _batchResize = 100;
+        static int _batchResize = 4;
 
-        static int _batchSaveFile = 100;
+        static int _batchSaveFile = 20;
 
+        static object _lock = new object();
+
+        static int _counterDownload = 0;
+
+        static int _countSaveFile = 0;
         public static void Main()
         {
             var totalItem = _totalItem;
@@ -48,192 +54,149 @@ namespace Ffmpeg.TestDownloadPicsum
             for (var i = 0; i < totalItem; i++)
             {
                 urls.Add("https://picsum.photos/600/900");
+
+                _queueUrl.Enqueue("https://picsum.photos/600/900");
             }
 
-            var counterDownload = 0;
+          
 
+            Console.WriteLine($"Init total items: {_totalItem}");
             _start = DateTime.Now;
 
-            new Thread(async () =>
-            {
-                while (true)
-                {
-                    if (counterDownload > totalItem) return;
-
-                    var items = urls.Skip(counterDownload).Take(_batchDownload).ToList();
-
-                    //Parallel.ForEach(items, new ParallelOptions { MaxDegreeOfParallelism = batchDownload }, (url) =>
-                    //{
-
-                    //    if (counterDownload > totalItem) return;
-
-                    //    counterDownload++;
-                    //    var sw = Stopwatch.StartNew();
-                    //    using (var httpClient = new HttpClient())
-                    //    {
-                    //        httpClient.BaseAddress = new Uri(url);
-                    //        using (var ms = new MemoryStream())
-                    //        {
-                    //            var stream = httpClient.GetStreamAsync(url).GetAwaiter().GetResult();
-
-                    //            stream.CopyTo(ms);
-                    //            _queueDownloadedUrl.Enqueue(ms.ToArray());
-                    //        }                               
-
-                    //        //var base64 = Convert.ToBase64String(ms.ToArray());
-                    //    }
-                    //    sw.Stop();
-                    //    Console.WriteLine($"Download in {sw.ElapsedMilliseconds} miliseconds");
-
-                    //});
-
-                    List<Task> tasks = new List<Task>();
-
-                    foreach (var ms in items)
-                    {
-                        var url = ms;
-                        tasks.Add(Task.Run(async () =>
-                        {
-                            if (counterDownload > totalItem) return;
-
-                            counterDownload++;
-                            var sw = Stopwatch.StartNew();
-                            using (var httpClient = new HttpClient())
-                            {
-                                httpClient.BaseAddress = new Uri(url);
-                                using (var ms = new MemoryStream())
-                                {
-                                    var stream = await httpClient.GetStreamAsync(url);
-
-                                    stream.CopyTo(ms);
-                                    _queueDownloadedUrl.Enqueue(ms.ToArray());
-                                }
-
-                                //var base64 = Convert.ToBase64String(ms.ToArray());
-                            }
-                            sw.Stop();
-                            _timeDownloads.Add(sw.ElapsedMilliseconds);
-                        }));
-                    }
-
-                    await Task.WhenAll(tasks);
-
-                    await Task.Delay(1);
-                    //Console.WriteLine($"Downloaded {counterDownload}");
-                }
-            }).Start();
-
-            new Thread(() =>
-           {
-               var countRezise = 0;
-               while (true)
+            TaskKeepMaxRunning downloadRunner = new TaskKeepMaxRunning(
+                "UrlDownloader",
+               () =>
                {
-                   if (countRezise > totalItem) return;
-
-                   List<byte[]> items = new List<byte[]>();
-                   for (var i = 0; i < _batchResize; i++)
+                   if (!_queueUrl.TryDequeue(out string url) || string.IsNullOrEmpty(url))
                    {
-                       if (_queueDownloadedUrl.TryDequeue(out byte[] ms) && ms != null)
-                       {
-                           items.Add(ms);
-                       }
+                       return false;
                    }
 
-                   Parallel.ForEach(items, new ParallelOptions { MaxDegreeOfParallelism = _batchResize }, (ms) =>
+                   Task.Run(async () =>
                    {
-                       if (countRezise > totalItem) return;
-
-                       countRezise++;
                        var sw = Stopwatch.StartNew();
-                       var outMs = new MemoryStream();
-                       using (var image = SixLabors.ImageSharp.Image.Load(ms))
-                       {
-                           image.Mutate(x => x.Resize(200, 300));
-                           image.SaveAsJpeg(outMs);
-                       }
-                       _queeuResizedImage.Enqueue(outMs);
+                       var httpClient = new HttpClient();
+                       httpClient.BaseAddress = new Uri("https://picsum.photos/600/900");
+                       var ms = new MemoryStream();
+                       var stream = await httpClient.GetStreamAsync(url);
+
+                       stream.CopyTo(ms);
+                       _queueDownloadedUrl.Enqueue(ms.ToArray());
+                       ms = null;
+                       stream = null;
+                       //var base64 = Convert.ToBase64String(ms.ToArray());
+                       httpClient = null;
+                       _counterDownload++;
                        sw.Stop();
-                       _timeResize.Add(sw.ElapsedMilliseconds);
+                       _timeDownloads.Add(sw.ElapsedMilliseconds);
                    });
 
-                   Thread.Sleep(100);
-                   //Console.WriteLine($"Resized {countRezise}");
+                   return true;
+
                }
+                , _batchDownload);
 
-           }).Start();
+            int w = 200;
+            int h = 300;
 
-            new Thread(async () =>
+            TaskKeepMaxRunning resizeRunner = new TaskKeepMaxRunning(
+                "ImageResizer",
+               () =>
+               {
+                   if (!_queueDownloadedUrl.TryDequeue(out byte[] ms) || ms == null)
+                   {
+                       return false;
+                   }
+                                    
+                   var sw = Stopwatch.StartNew();
+                   var outMs = new MemoryStream();
+                   var image = SixLabors.ImageSharp.Image.Load(ms);
+                   image.Mutate(x => x.Resize(w, h));
+                   //                   var dateNow = DateTime.Now.ToString("yyyyMMddHHmmss");
+                   //                 image.Save(Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg"));
+                   image.SaveAsJpeg(outMs);
+                    _queeuResizedImage.Enqueue(outMs);
+                   ms = null;
+                   image = null;
+                   sw.Stop();
+                   _timeResize.Add(sw.ElapsedMilliseconds);
+
+                   return true;
+               }
+                , _batchResize);
+
+
+            TaskKeepMaxRunning saveFileRunner = new TaskKeepMaxRunning(
+                "FileSaver",
+               () =>
+               {
+                   if (!_queeuResizedImage.TryDequeue(out MemoryStream ms) || ms == null)
+                   {
+                       return false;
+                   }
+
+                   var sw = Stopwatch.StartNew();
+                   ///var dateNow = DateTime.Now.ToString("yyyyMMddHHmmss");
+                   var bmp = new Bitmap(ms);
+                   bmp.Save(Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg"));
+                   ms = null;
+                   bmp = null;
+                   sw.Stop();
+                   _timeSaveFile.Add(sw.ElapsedMilliseconds);
+
+                   _countSaveFile++;
+                   return true;
+               }
+                , _batchSaveFile);
+
+
+            downloadRunner.Start();
+
+            resizeRunner.Start();
+
+            saveFileRunner.Start();
+
+            while (true)
             {
-                var countSaveFile = 0;
-                while (true)
+                Console.WriteLine($"{_counterDownload}/{_countSaveFile} : DownloadWorker:{downloadRunner.CurrentCount()} remain:{_queueUrl.Count} " +
+                    $"ResizeWorker:{resizeRunner.CurrentCount()} remain:{_queueDownloadedUrl.Count} "
+                    +                 $"SaveFileWorker:{saveFileRunner.CurrentCount()} remain:{_queeuResizedImage.Count}"
+                    );
+
+                if (_counterDownload >= totalItem)
                 {
-                    if (countSaveFile >= totalItem)
-                    {
-                        CaclculateStop();
-                        return;
-                    }
 
-                    List<MemoryStream> items = new List<MemoryStream>();
-                    for (var i = 0; i < _batchSaveFile; i++)
-                    {
-                        if (_queeuResizedImage.TryDequeue(out MemoryStream ms) && ms != null)
-                        {
-                            items.Add(ms);
-                        }
-                    }
-
-                    //Parallel.ForEach(items, new ParallelOptions { MaxDegreeOfParallelism = batchResize }, (ms) =>
-                    //{
-                    //    if (countSaveFile >= totalItem) {
-                    //        CaclculateStop();
-                    //        return;
-                    //    }
-
-                    //    countSaveFile++;
-
-                    //    var dateNow = DateTime.Now.ToString("yyyyMMddHHmmss");
-                    //    new Bitmap(ms).Save(Path.Combine(_dirTemp, $"{dateNow}_{Guid.NewGuid()}.jpg"));
-                    //    ms.Dispose();
-                    //});
-
-                    List<Task> tasks = new List<Task>();
-
-                    foreach (var ms in items)
-                    {
-                        tasks.Add(Task.Run(() =>
-                        {
-                            if (countSaveFile >= totalItem)
-                            {
-                                CaclculateStop();
-                                return;
-                            }
-
-                            countSaveFile++;
-                            var sw = Stopwatch.StartNew();
-                            var dateNow = DateTime.Now.ToString("yyyyMMddHHmmss");
-                            new Bitmap(ms).Save(Path.Combine(_dirTemp, $"{dateNow}_{Guid.NewGuid()}.jpg"));
-                            ms.Dispose();
-                            sw.Stop();
-                            _timeSaveFile.Add(sw.ElapsedMilliseconds);
-                        }));                      
-                    }
-
-                    await Task.WhenAll(tasks);
-                    await Task.Delay(1);
-
-                    //Console.WriteLine($"Saved {countSaveFile}");
+                    downloadRunner.Stop();
                 }
-            }).Start();
 
-            Console.WriteLine("Type `quit` to exit");
+                if (_countSaveFile >= totalItem)
+                {
+                    CaclculateStop();
 
-            var cmd = Console.ReadLine();
-            if (cmd == "quit")
-            {
-                //can do stop all worker here
-                Environment.Exit(0);
-                return;
+                    downloadRunner.Stop();
+                    resizeRunner.Stop();
+                     saveFileRunner.Stop();
+
+                    break;
+                }
+
+                if (Console.KeyAvailable)
+                {
+                    Console.WriteLine("Type `quit` to exit");
+
+                    var cmd = Console.ReadLine();
+                    if (cmd == "quit")
+                    {
+                        downloadRunner.Stop();
+                        resizeRunner.Stop();
+                        // saveFileRunner.Stop();
+                        break;
+                    }
+                }
+                Thread.Sleep(2000);
             }
+
+            Console.WriteLine("Done");
         }
 
         static void CaclculateStop()
@@ -242,17 +205,19 @@ namespace Ffmpeg.TestDownloadPicsum
 
             var distance = dateNow.Subtract(_start);
 
-            Console.WriteLine("Total download items: " +  _totalItem);
+            Console.WriteLine("Total download items: " + _totalItem);
             Console.WriteLine("Total download in miliseconds: " + distance.TotalMilliseconds);
             Console.WriteLine("Total download in seconds: " + distance.TotalSeconds);
 
-            Console.WriteLine("Everage download in miliseconds: " + _timeDownloads.Sum()/_totalItem);
+            Console.WriteLine("Everage download in miliseconds: " + _timeDownloads.Sum() / _totalItem);
             Console.WriteLine("Everage resize in miliseconds: " + _timeResize.Sum() / _totalItem);
             Console.WriteLine("Everage save file in miliseconds: " + _timeSaveFile.Sum() / _totalItem);
 
         }
 
         static int _bufferDơnload = 1024 * 4;
+
+
         public static void CopyStream(Stream input, Stream output)
         {
             byte[] buffer = new byte[_bufferDơnload];
@@ -261,6 +226,72 @@ namespace Ffmpeg.TestDownloadPicsum
             {
                 output.Write(buffer, 0, read);
             }
+        }
+    }
+
+    public class TaskKeepMaxRunning
+    {
+        int _max = 1;
+        Func<bool> _a;
+        object _lock = new object();
+        bool _isStop;
+        int _current;
+        Thread _thread;
+        string _name;
+        int _sleep;
+        public TaskKeepMaxRunning(string name, Func<bool> a, int max = 2, int sleep = 10)
+        {
+            _name = name;
+            _a = a;
+            _max = max;
+            _sleep = sleep;
+            _thread = new Thread(Loop);
+        }
+
+        public int CurrentCount()
+        {
+            lock (_lock) return _current;
+        }
+
+        void Loop()
+        {
+            _current = 1;
+            while (!_isStop)
+            {
+                lock (_lock)
+                {
+                    var needRun = _max - _current;
+
+                    if (needRun <= 0)
+                    {
+                        Console.WriteLine($"{_name} max: {_max} parallel");
+                        continue;
+                    }
+                    _current++;
+                }
+
+                Task.Run(() =>
+                   {
+                       var r = _a();
+                       lock (_lock) _current--;
+                   });
+
+
+                Thread.Sleep(_sleep);
+            }
+            Console.WriteLine($"{_name} stoped");
+        }
+
+        public void Start()
+        {
+            _thread.Start();
+            Console.WriteLine($"{_name} started");
+        }
+
+        public void Stop()
+        {
+            _isStop = true;
+
         }
     }
 }
