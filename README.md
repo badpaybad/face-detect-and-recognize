@@ -9,7 +9,7 @@ face detect and recognize with emgucv dnn caffe usage check in Program.cs
 
 # FaceRecognitionCombination
 
-### Train and save your model file
+### Train and save your model file (if exist will load model)
         // listFaceToTrainHere obj {Face, Label}
         rekognitionCombind.Train( listFaceToTrainHere , out string eigenFileModel, out string lbphFileModel);
 
