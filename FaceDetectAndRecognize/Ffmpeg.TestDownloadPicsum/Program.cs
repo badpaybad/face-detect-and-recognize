@@ -23,7 +23,9 @@ namespace Ffmpeg.TestDownloadPicsum
         static ConcurrentQueue<string> _queueUrl = new ConcurrentQueue<string>();
         static ConcurrentQueue<byte[]> _queueDownloadedUrl = new ConcurrentQueue<byte[]>();
 
-         static ConcurrentQueue<MemoryStream> _queeuResizedImage = new ConcurrentQueue<MemoryStream>();
+        static ConcurrentQueue<string> _queueSaved = new ConcurrentQueue<string>();
+
+        static ConcurrentQueue<MemoryStream> _queeuResizedImage = new ConcurrentQueue<MemoryStream>();
 
         static List<long> _timeDownloads = new List<long>();
         static List<long> _timeResize = new List<long>();
@@ -39,9 +41,6 @@ namespace Ffmpeg.TestDownloadPicsum
 
         static object _lock = new object();
 
-        static int _counterDownload = 0;
-
-        static int _countSaveFile = 0;
         public static void Main()
         {
             var totalItem = _totalItem;
@@ -58,7 +57,7 @@ namespace Ffmpeg.TestDownloadPicsum
                 _queueUrl.Enqueue("https://picsum.photos/600/900");
             }
 
-          
+
 
             Console.WriteLine($"Init total items: {_totalItem}");
             _start = DateTime.Now;
@@ -86,7 +85,6 @@ namespace Ffmpeg.TestDownloadPicsum
                        stream = null;
                        //var base64 = Convert.ToBase64String(ms.ToArray());
                        httpClient = null;
-                       _counterDownload++;
                        sw.Stop();
                        _timeDownloads.Add(sw.ElapsedMilliseconds);
                    });
@@ -107,7 +105,7 @@ namespace Ffmpeg.TestDownloadPicsum
                    {
                        return false;
                    }
-                                    
+
                    var sw = Stopwatch.StartNew();
                    var outMs = new MemoryStream();
                    var image = SixLabors.ImageSharp.Image.Load(ms);
@@ -115,7 +113,7 @@ namespace Ffmpeg.TestDownloadPicsum
                    //                   var dateNow = DateTime.Now.ToString("yyyyMMddHHmmss");
                    //                 image.Save(Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg"));
                    image.SaveAsJpeg(outMs);
-                    _queeuResizedImage.Enqueue(outMs);
+                   _queeuResizedImage.Enqueue(outMs);
                    ms = null;
                    image = null;
                    sw.Stop();
@@ -138,13 +136,14 @@ namespace Ffmpeg.TestDownloadPicsum
                    var sw = Stopwatch.StartNew();
                    ///var dateNow = DateTime.Now.ToString("yyyyMMddHHmmss");
                    var bmp = new Bitmap(ms);
-                   bmp.Save(Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg"));
+                   string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
+                   bmp.Save(filename);
                    ms = null;
                    bmp = null;
+                   _queueSaved.Enqueue(filename);
                    sw.Stop();
                    _timeSaveFile.Add(sw.ElapsedMilliseconds);
 
-                   _countSaveFile++;
                    return true;
                }
                 , _batchSaveFile);
@@ -158,24 +157,18 @@ namespace Ffmpeg.TestDownloadPicsum
 
             while (true)
             {
-                Console.WriteLine($"{_counterDownload}/{_countSaveFile} : DownloadWorker:{downloadRunner.CurrentCount()} remain:{_queueUrl.Count} " +
+                Console.WriteLine($"{_queueSaved.Count} DownloadWorker:{downloadRunner.CurrentCount()} remain:{_queueUrl.Count} " +
                     $"ResizeWorker:{resizeRunner.CurrentCount()} remain:{_queueDownloadedUrl.Count} "
-                    +                 $"SaveFileWorker:{saveFileRunner.CurrentCount()} remain:{_queeuResizedImage.Count}"
+                    + $"SaveFileWorker:{saveFileRunner.CurrentCount()} remain:{_queeuResizedImage.Count}"
                     );
 
-                if (_counterDownload >= totalItem)
-                {
-
-                    downloadRunner.Stop();
-                }
-
-                if (_countSaveFile >= totalItem)
+                if (_queueSaved.Count >= totalItem)
                 {
                     CaclculateStop();
 
                     downloadRunner.Stop();
                     resizeRunner.Stop();
-                     saveFileRunner.Stop();
+                    saveFileRunner.Stop();
 
                     break;
                 }
@@ -250,7 +243,7 @@ namespace Ffmpeg.TestDownloadPicsum
 
         public int CurrentCount()
         {
-            lock (_lock) return _current;
+            return _current;
         }
 
         void Loop()
@@ -258,26 +251,29 @@ namespace Ffmpeg.TestDownloadPicsum
             _current = 1;
             while (!_isStop)
             {
-                lock (_lock)
+                try
                 {
-                    var needRun = _max - _current;
-
-                    if (needRun <= 0)
+                    if (_current >= _max)
                     {
-                        Console.WriteLine($"{_name} max: {_max} parallel");
                         continue;
                     }
+
                     _current++;
+
+                    Task.Run(() =>
+                    {
+                        var r = _a();
+                        _current--;
+                    });
+
+
+                }
+                finally
+                {
+                    Thread.Sleep(_sleep);
+                    //Console.WriteLine($"{_name} worker count: {_current} parallel");
                 }
 
-                Task.Run(() =>
-                   {
-                       var r = _a();
-                       lock (_lock) _current--;
-                   });
-
-
-                Thread.Sleep(_sleep);
             }
             Console.WriteLine($"{_name} stoped");
         }
