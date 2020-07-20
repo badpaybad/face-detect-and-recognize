@@ -44,6 +44,70 @@ namespace Ffmpeg.TestDownloadPicsum
 
         static List<object> test = new List<object>();
 
+        static int w = 200;
+        static int h = 300;
+        static int _taskCurrentCount;
+
+        //static will thread safe
+        static SemaphoreSlim _semaphore;
+        private static void DoMaxParallelTask()
+        {
+            _semaphore = new SemaphoreSlim(_batchDownload);
+
+            Console.WriteLine($"Semarphore with size {_batchDownload} total item {_queueUrl.Count}");
+            List<Task> allTask = new List<Task>();
+
+            var allSw = Stopwatch.StartNew();
+            while (_queueUrl.TryDequeue(out string url) && !string.IsNullOrEmpty(url))
+            {
+                _semaphore.Wait();
+
+                Console.WriteLine($"Remain:{_queueUrl.Count} Thread:{ThreadPool.ThreadCount} ");
+
+                Task.Run(async () =>
+                    {
+                        var swd = Stopwatch.StartNew();
+                        HttpClient httpClient = new HttpClient();
+                        httpClient.BaseAddress = new Uri(url);
+                        var stream = await httpClient.GetStreamAsync(url);
+                        var ms = new MemoryStream();
+                        stream.CopyTo(ms);
+                        swd.Stop();
+                        _timeDownloads.Add(swd.ElapsedMilliseconds);
+
+                       var t= Task.Run(async () =>
+                        {
+                            var sw = Stopwatch.StartNew();
+
+                            string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
+
+                            using (var image = SixLabors.ImageSharp.Image.Load(ms.ToArray()))
+                            {
+                                image.Mutate(x => x.Resize(w, h));
+
+                                _queueSaved.Enqueue(filename);
+
+                                await image.SaveAsync(filename);
+                            }
+                            sw.Stop();
+
+                            //Console.WriteLine($"Saved file: {sw.ElapsedMilliseconds} at: {filename}");
+
+                            _semaphore.Release();
+                        });
+
+                        allTask.Add(t);
+
+                    });
+            }
+
+            Task.WhenAll(allTask).GetAwaiter().GetResult();
+
+            allSw.Stop();
+
+            Console.WriteLine($"All include while loop in {allSw.ElapsedMilliseconds}");
+
+        }
         public static void Main()
         {
             int.TryParse(ConfigurationManager.AppSettings["total_item"], out _totalItem);
@@ -99,6 +163,13 @@ namespace Ffmpeg.TestDownloadPicsum
 
             Console.WriteLine($"Init total items: {_totalItem}");
             _start = DateTime.Now;
+
+            Task.Run(DoMaxParallelTask);
+
+            Console.ReadLine();
+
+            //test another way
+            return;
 
             WorkerKeepMaxRunning downloadRunner = new WorkerKeepMaxRunning(
                 "UrlDownloader", _totalItem,
@@ -260,6 +331,7 @@ namespace Ffmpeg.TestDownloadPicsum
             Console.WriteLine("Done");
         }
 
+
         static void CaclculateStop()
         {
             var dateNow = DateTime.Now;
@@ -383,7 +455,7 @@ namespace Ffmpeg.TestDownloadPicsum
                 finally
                 {
                     //Thread.Sleep(_sleep);
-                   await Task.Delay(_sleep);
+                    await Task.Delay(_sleep);
                 }
             }
 
