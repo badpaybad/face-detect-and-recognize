@@ -101,7 +101,7 @@ namespace Ffmpeg.TestDownloadPicsum
             _start = DateTime.Now;
 
             WorkerKeepMaxRunning downloadRunner = new WorkerKeepMaxRunning(
-                "UrlDownloader",
+                "UrlDownloader", _totalItem,
                (ctx) =>
                {
                    if (!_queueUrl.TryDequeue(out string url) || string.IsNullOrEmpty(url))
@@ -158,7 +158,7 @@ namespace Ffmpeg.TestDownloadPicsum
             int h = 1440;
 
             WorkerKeepMaxRunning resizeRunner = new WorkerKeepMaxRunning(
-                "ImageResizer",
+                "ImageResizer", _totalItem,
                (ctx) =>
                {
                    if (!_queueDownloadedUrl.TryDequeue(out byte[] ms) || ms == null)
@@ -185,8 +185,6 @@ namespace Ffmpeg.TestDownloadPicsum
                        sw.Stop();
                        _timeResize.Add(sw.ElapsedMilliseconds);
                    });
-
-
                }
                 , _batchResize);
 
@@ -262,8 +260,6 @@ namespace Ffmpeg.TestDownloadPicsum
             Console.WriteLine("Done");
         }
 
-
-
         static void CaclculateStop()
         {
             var dateNow = DateTime.Now;
@@ -296,6 +292,11 @@ namespace Ffmpeg.TestDownloadPicsum
 
     public class WorkerKeepMaxRunning
     {
+        public enum Type
+        {
+            Thread,
+            Async
+        }
         int _max = 1;
         readonly Action<WorkerKeepMaxRunning> _a;
         object _lock = new object();
@@ -310,15 +311,26 @@ namespace Ffmpeg.TestDownloadPicsum
 
         public event Action<WorkerKeepMaxRunning> OnStoped;
         Action<WorkerKeepMaxRunning> _onRelease;
-        public WorkerKeepMaxRunning(string name, Action<WorkerKeepMaxRunning> a, int max = 2, int sleep = 100, Action<WorkerKeepMaxRunning> onRelease = null)
+
+        Type _type;
+        int _maxDoneJob;
+        int _currentDoneJob;
+
+
+        public WorkerKeepMaxRunning(string name, int maxDoneJob, Action<WorkerKeepMaxRunning> a, int maxParallel = 2, int sleep = 100
+            , Action<WorkerKeepMaxRunning> onRelease = null
+            , Type type = Type.Thread)
         {
+            _maxDoneJob = maxDoneJob;
             _name = name;
             _a = a;
-            _max = max;
+            _max = maxParallel;
             _sleep = sleep;
             //_semaphoreObject = new SemaphoreSlim(1, _max);
             _onRelease = onRelease;
-            _thread = new Thread(() => { Loop(); });
+            _type = type;
+
+            if (_type == Type.Thread) _thread = new Thread(async () => { await Loop(); });
         }
 
         public int CurrentCount()
@@ -331,7 +343,7 @@ namespace Ffmpeg.TestDownloadPicsum
         {
             return _isStop;
         }
-        void Loop()
+        async Task Loop()
         {
             while (!_isStop)
             {
@@ -339,6 +351,8 @@ namespace Ffmpeg.TestDownloadPicsum
                 {
                     lock (_lock)
                     {
+                        if (_currentDoneJob >= _maxDoneJob) break;
+
                         if (_current >= _max)
                         {
                             continue;
@@ -347,28 +361,35 @@ namespace Ffmpeg.TestDownloadPicsum
                     }
 
                     var t = Task.Run(() =>
-                         {
-                             try
-                             {
-                                 _a(this);
+                          {
+                              try
+                              {
+                                  _a(this);
 
-                                 lock (_lock) _current--;
-                                 _onRelease?.Invoke(this);
-                             }
-                             catch (Exception ex)
-                             {
-                                 Console.WriteLine(ex.Message);
-                             }
-                         });
+                                  lock (_lock)
+                                  {
+                                      _currentDoneJob++;
+                                      _current--;
+                                  }
+                                  _onRelease?.Invoke(this);
+                              }
+                              catch (Exception ex)
+                              {
+                                  Console.WriteLine(ex.Message);
+                              }
+                          });
                     _tasks.Add(t);
                 }
                 finally
                 {
-                    Thread.Sleep(_sleep);
+                    //Thread.Sleep(_sleep);
+                   await Task.Delay(_sleep);
                 }
             }
 
-            Task.WhenAll(_tasks).GetAwaiter().GetResult();
+            await Task.WhenAll(_tasks);
+
+            _isStop = true;
 
             OnStoped?.Invoke(this);
 
@@ -377,7 +398,14 @@ namespace Ffmpeg.TestDownloadPicsum
 
         public void Start()
         {
-            _thread.Start();
+            if (_type == Type.Thread)
+            {
+                _thread.Start();
+            }
+            else
+            {
+                Task.Run(async () => { await Loop(); });
+            }
 
             Console.WriteLine($"{_name} started");
             //await Loop();
