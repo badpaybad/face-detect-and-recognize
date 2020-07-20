@@ -152,7 +152,6 @@ namespace FaceDetectAndRecognize.Core
             {
                 _faceHeight = faces.Select(i => i.Key.Height).Sum() / faces.Count;
             }
-
             foreach (var f1 in faces)
             {
                 var f = f1;
