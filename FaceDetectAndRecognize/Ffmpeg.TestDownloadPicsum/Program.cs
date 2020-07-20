@@ -276,10 +276,11 @@ namespace Ffmpeg.TestDownloadPicsum
             {
                 try
                 {
-
-                    if (_current >= _max) continue;
-
-                    lock (_lock) _current++;
+                    lock (_lock)
+                    {
+                        if (_current >= _max) continue;
+                        _current++;
+                    }
 
                     var t = Task.Run(() =>
                          {
