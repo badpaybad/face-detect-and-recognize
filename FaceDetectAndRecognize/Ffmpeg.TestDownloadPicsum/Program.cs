@@ -33,14 +33,14 @@ namespace Ffmpeg.TestDownloadPicsum
 
         static int _totalItem = 1000;
 
-        static int _batchDownload = 20;
+        static int _batchDownload = 100;
 
         static int _batchResize = 4;
 
-        static int _batchSaveFile = 20;
+        static int _batchSaveFile = 10;
 
         static object _lock = new object();
-
+       
         public static void Main()
         {
             var totalItem = _totalItem;
@@ -57,94 +57,89 @@ namespace Ffmpeg.TestDownloadPicsum
                 _queueUrl.Enqueue("https://picsum.photos/600/900");
             }
 
-
-
             Console.WriteLine($"Init total items: {_totalItem}");
             _start = DateTime.Now;
 
-            TaskKeepMaxRunning downloadRunner = new TaskKeepMaxRunning(
+            WorkerKeepMaxRunning downloadRunner = new WorkerKeepMaxRunning(
                 "UrlDownloader",
-               () =>
+               (ctx) =>
                {
                    if (!_queueUrl.TryDequeue(out string url) || string.IsNullOrEmpty(url))
                    {
-                       return false;
+                       if (ctx != null) ctx.Stop();
+                       return;
                    }
 
-                   Task.Run(async () =>
+                   var sw = Stopwatch.StartNew();
+                   using (HttpClient httpClient = new HttpClient())
                    {
-                       var sw = Stopwatch.StartNew();
-                       var httpClient = new HttpClient();
-                       httpClient.BaseAddress = new Uri("https://picsum.photos/600/900");
-                       var ms = new MemoryStream();
-                       var stream = await httpClient.GetStreamAsync(url);
+                       httpClient.BaseAddress = new Uri(url);
+                       using (var ms = new MemoryStream())
+                       {
+                           using (var stream =  httpClient.GetStreamAsync(url).GetAwaiter().GetResult())
+                           {
+                               stream.CopyTo(ms);
+                               _queueDownloadedUrl.Enqueue(ms.ToArray());
+                               //var base64 = Convert.ToBase64String(ms.ToArray());
+                           }
+                       }
+                   }
 
-                       stream.CopyTo(ms);
-                       _queueDownloadedUrl.Enqueue(ms.ToArray());
-                       ms = null;
-                       stream = null;
-                       //var base64 = Convert.ToBase64String(ms.ToArray());
-                       httpClient = null;
-                       sw.Stop();
-                       _timeDownloads.Add(sw.ElapsedMilliseconds);
-                   });
-
-                   return true;
-
+                   sw.Stop();
+                   _timeDownloads.Add(sw.ElapsedMilliseconds);
                }
                 , _batchDownload);
 
             int w = 200;
             int h = 300;
 
-            TaskKeepMaxRunning resizeRunner = new TaskKeepMaxRunning(
+            WorkerKeepMaxRunning resizeRunner = new WorkerKeepMaxRunning(
                 "ImageResizer",
-               () =>
+               (ctx) =>
                {
                    if (!_queueDownloadedUrl.TryDequeue(out byte[] ms) || ms == null)
                    {
-                       return false;
+                       return;
                    }
 
                    var sw = Stopwatch.StartNew();
                    var outMs = new MemoryStream();
-                   var image = SixLabors.ImageSharp.Image.Load(ms);
-                   image.Mutate(x => x.Resize(w, h));
-                   //                   var dateNow = DateTime.Now.ToString("yyyyMMddHHmmss");
-                   //                 image.Save(Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg"));
-                   image.SaveAsJpeg(outMs);
-                   _queeuResizedImage.Enqueue(outMs);
-                   ms = null;
-                   image = null;
+                   using (var image = SixLabors.ImageSharp.Image.Load(ms))
+                   {
+                       image.Mutate(x => x.Resize(w, h));
+                       image.SaveAsJpeg(outMs);
+                       _queeuResizedImage.Enqueue(outMs);
+                   }
+
                    sw.Stop();
                    _timeResize.Add(sw.ElapsedMilliseconds);
 
-                   return true;
                }
                 , _batchResize);
 
 
-            TaskKeepMaxRunning saveFileRunner = new TaskKeepMaxRunning(
+            WorkerKeepMaxRunning saveFileRunner = new WorkerKeepMaxRunning(
                 "FileSaver",
-               () =>
+              (ctx) =>
                {
                    if (!_queeuResizedImage.TryDequeue(out MemoryStream ms) || ms == null)
                    {
-                       return false;
+                       return;
                    }
 
                    var sw = Stopwatch.StartNew();
                    ///var dateNow = DateTime.Now.ToString("yyyyMMddHHmmss");
-                   var bmp = new Bitmap(ms);
-                   string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
-                   bmp.Save(filename);
-                   ms = null;
-                   bmp = null;
-                   _queueSaved.Enqueue(filename);
+                   using (var bmp = new Bitmap(ms))
+                   {
+                       string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
+                       bmp.Save(filename);
+
+                       _queueSaved.Enqueue(filename);
+                   }
+
                    sw.Stop();
                    _timeSaveFile.Add(sw.ElapsedMilliseconds);
 
-                   return true;
                }
                 , _batchSaveFile);
 
@@ -155,11 +150,12 @@ namespace Ffmpeg.TestDownloadPicsum
 
             saveFileRunner.Start();
 
+
             while (true)
             {
-                Console.WriteLine($"{_queueSaved.Count} DownloadWorker:{downloadRunner.CurrentCount()} remain:{_queueUrl.Count} " +
-                    $"ResizeWorker:{resizeRunner.CurrentCount()} remain:{_queueDownloadedUrl.Count} "
-                    + $"SaveFileWorker:{saveFileRunner.CurrentCount()} remain:{_queeuResizedImage.Count}"
+                Console.WriteLine($"{_queueSaved.Count} --DownloadWorker:{downloadRunner.CurrentCount()} remain:{_queueUrl.Count} " +
+                    $"--ResizeWorker:{resizeRunner.CurrentCount()} remain:{_queueDownloadedUrl.Count} "
+                    + $"--SaveFileWorker:{saveFileRunner.CurrentCount()} remain:{_queeuResizedImage.Count}"
                     );
 
                 if (_queueSaved.Count >= totalItem)
@@ -222,66 +218,83 @@ namespace Ffmpeg.TestDownloadPicsum
         }
     }
 
-    public class TaskKeepMaxRunning
+    public class WorkerKeepMaxRunning
     {
         int _max = 1;
-        Func<bool> _a;
+        readonly Action<WorkerKeepMaxRunning> _a;
         object _lock = new object();
         bool _isStop;
         int _current;
         Thread _thread;
         string _name;
         int _sleep;
-        public TaskKeepMaxRunning(string name, Func<bool> a, int max = 2, int sleep = 10)
+        SemaphoreSlim _semaphoreObject;
+
+        List<Task> _tasks = new List<Task>();
+
+        public WorkerKeepMaxRunning(string name, Action<WorkerKeepMaxRunning> a, int max = 2, int sleep = 10)
         {
             _name = name;
             _a = a;
             _max = max;
             _sleep = sleep;
-            _thread = new Thread(Loop);
+            //_semaphoreObject = new SemaphoreSlim(1, _max);
+            _thread = new Thread(() => { Loop(); });
         }
 
         public int CurrentCount()
         {
-            return _current;
+            lock (_lock) { return _isStop ? 0 : _current; }
+            //return _semaphoreObject == null ? 0 : _semaphoreObject.CurrentCount;
         }
 
         void Loop()
         {
-            _current = 1;
             while (!_isStop)
             {
                 try
                 {
-                    if (_current >= _max)
-                    {
-                        continue;
-                    }
 
-                    _current++;
+                    if (_current >= _max) continue;
 
-                    Task.Run(() =>
-                    {
-                        var r = _a();
-                        _current--;
-                    });
+                    lock (_lock) _current++;
 
+                    var t = Task.Run(() =>
+                         {
+                             _a(this);
 
+                             lock (_lock) _current--;
+                           //if (_semaphoreObject != null && _semaphoreObject.Wait(_sleep))
+                           //{
+                           //    if (!_isStop)
+                           //    {
+                           //        _a(this);
+
+                           //        _semaphoreObject.Release();
+                           //    }
+                           //}
+
+                       });
+                    _tasks.Add(t);
                 }
                 finally
                 {
                     Thread.Sleep(_sleep);
-                    //Console.WriteLine($"{_name} worker count: {_current} parallel");
                 }
-
             }
+            _semaphoreObject = null;
+            
+            Task.WhenAll(_tasks).GetAwaiter().GetResult();
+
             Console.WriteLine($"{_name} stoped");
         }
 
         public void Start()
         {
             _thread.Start();
+
             Console.WriteLine($"{_name} started");
+            //await Loop();
         }
 
         public void Stop()
