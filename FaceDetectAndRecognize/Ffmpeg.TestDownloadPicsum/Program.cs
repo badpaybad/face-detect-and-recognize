@@ -119,8 +119,7 @@ namespace Ffmpeg.TestDownloadPicsum
                        {
                            if (ctx != null) ctx.Stop();
                        }
-                   });
-                   //.GetAwaiter().GetResult();
+                   }).GetAwaiter().GetResult();
                }
                 , _batchDownload);
 
