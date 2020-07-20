@@ -33,7 +33,7 @@ namespace Ffmpeg.TestDownloadPicsum
 
         static int _totalItem = 1000;
 
-        static int _batchDownload = 100;
+        static int _batchDownload = 10;
 
         static int _batchResize = 4;
 
