@@ -33,14 +33,14 @@ namespace Ffmpeg.TestDownloadPicsum
 
         static int _totalItem = 1000;
 
-        static int _batchDownload = 50;
+        static int _batchDownload = 100;
 
         static int _batchResize = 12;
 
         static int _batchSaveFile = 12;
 
         static object _lock = new object();
-       
+
         public static void Main()
         {
             var totalItem = _totalItem;
@@ -66,33 +66,37 @@ namespace Ffmpeg.TestDownloadPicsum
                {
                    if (!_queueUrl.TryDequeue(out string url) || string.IsNullOrEmpty(url))
                    {
-                       if (ctx != null) ctx.Stop();
-                       
                        return;
                    }
 
-                   var sw = Stopwatch.StartNew();
-                   using (HttpClient httpClient = new HttpClient())
+                   Task.Run(async () =>
                    {
-                       httpClient.BaseAddress = new Uri(url);
-                       using (var ms = new MemoryStream())
+                       var sw = Stopwatch.StartNew();
+                       using (HttpClient httpClient = new HttpClient())
                        {
-                           using (var stream =  httpClient.GetStreamAsync(url).GetAwaiter().GetResult())
+                           httpClient.BaseAddress = new Uri(url);
+                           using (var ms = new MemoryStream())
                            {
-                               stream.CopyTo(ms);
-                               _queueDownloadedUrl.Enqueue(ms.ToArray());
-                               //var base64 = Convert.ToBase64String(ms.ToArray());
+                               using (var stream = await httpClient.GetStreamAsync(url))
+                               {
+                                   stream.CopyTo(ms);
+                                   _queueDownloadedUrl.Enqueue(ms.ToArray());
+                                   //var base64 = Convert.ToBase64String(ms.ToArray());
+                               }
                            }
                        }
-                   }
-
-                   sw.Stop();
-                   _timeDownloads.Add(sw.ElapsedMilliseconds);
-                   
+                       sw.Stop();
+                       _timeDownloads.Add(sw.ElapsedMilliseconds);
+                       if (_queueUrl.Count == 0)
+                       {
+                           if (ctx != null) ctx.Stop();
+                       }
+                   });
                }
                 , _batchDownload);
 
-            downloadRunner.OnStoped += (ctx)=> {
+            downloadRunner.OnStoped += (ctx) =>
+            {
                 if (_queueUrl.Count == 0 && ctx.IsStoped())
                 {
                     var dNow = DateTime.Now;
@@ -198,7 +202,7 @@ namespace Ffmpeg.TestDownloadPicsum
             Console.WriteLine("Done");
         }
 
-       
+
 
         static void CaclculateStop()
         {
@@ -281,8 +285,8 @@ namespace Ffmpeg.TestDownloadPicsum
                          {
                              _a(this);
 
-                             lock (_lock) _current--;                          
-                       });
+                             lock (_lock) _current--;
+                         });
                     _tasks.Add(t);
                 }
                 finally
@@ -290,7 +294,7 @@ namespace Ffmpeg.TestDownloadPicsum
                     Thread.Sleep(_sleep);
                 }
             }
-            
+
             Task.WhenAll(_tasks).GetAwaiter().GetResult();
 
             if (OnStoped != null)
