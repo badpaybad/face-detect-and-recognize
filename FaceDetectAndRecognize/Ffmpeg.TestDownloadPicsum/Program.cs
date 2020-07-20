@@ -3,6 +3,7 @@ using SixLabors.ImageSharp.Processing;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -45,6 +46,16 @@ namespace Ffmpeg.TestDownloadPicsum
 
         public static void Main()
         {
+            int.TryParse(ConfigurationManager.AppSettings["total_item"], out _totalItem);
+            int.TryParse(ConfigurationManager.AppSettings["batch_download"], out _batchDownload);
+            int.TryParse(ConfigurationManager.AppSettings["batch_resize"], out _batchResize);
+            int.TryParse(ConfigurationManager.AppSettings["batch_savefile"], out _batchSaveFile);
+
+            int.TryParse(ConfigurationManager.AppSettings["pic_width"], out int picWidth);
+
+            int.TryParse(ConfigurationManager.AppSettings["pic_height"], out int picHeight);
+            if (picHeight == 0) picHeight = 900;
+            if (picWidth == 0) picWidth = 600;
             //var xtest = new WorkerKeepMaxRunning("Test", (ctx) =>
             //{
             //    Task.Run(()=> {
@@ -52,7 +63,7 @@ namespace Ffmpeg.TestDownloadPicsum
 
             //        Thread.Sleep(2000);
             //    });
-                
+
 
             //}, 100, 1, (ctx) =>
             //{
@@ -80,9 +91,10 @@ namespace Ffmpeg.TestDownloadPicsum
 
             for (var i = 0; i < totalItem; i++)
             {
-                urls.Add("https://picsum.photos/2560/1440");
+                string item = $"https://picsum.photos/{picWidth}/{picHeight}";
+                urls.Add(item);
 
-                _queueUrl.Enqueue("https://picsum.photos/2560/1440");
+                _queueUrl.Enqueue(item);
             }
 
             Console.WriteLine($"Init total items: {_totalItem}");
@@ -110,6 +122,7 @@ namespace Ffmpeg.TestDownloadPicsum
                                    stream.CopyTo(ms);
                                    _queueDownloadedUrl.Enqueue(ms.ToArray());
                                    //var base64 = Convert.ToBase64String(ms.ToArray());
+                                   ///return ms.ToArray();
                                }
                            }
                        }
@@ -119,7 +132,15 @@ namespace Ffmpeg.TestDownloadPicsum
                        {
                            if (ctx != null) ctx.Stop();
                        }
-                   }).GetAwaiter().GetResult();
+                   })
+                   //.ContinueWith((stream) => {
+                   //    using (var image = SixLabors.ImageSharp.Image.Load(stream.Result))
+                   //    {
+                   //        string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
+                   //        image.Save(filename);
+                   //    }
+                   //})
+                   ;//.GetAwaiter().GetResult();
                }
                 , _batchDownload);
 
@@ -145,60 +166,70 @@ namespace Ffmpeg.TestDownloadPicsum
                        return;
                    }
 
-                   var sw = Stopwatch.StartNew();
-                   var outMs = new MemoryStream();
-                   using (var image = SixLabors.ImageSharp.Image.Load(ms))
+                   Task.Run(async () =>
                    {
-                       image.Mutate(x => x.Resize(w, h));
-                       image.SaveAsJpeg(outMs);
-                       _queeuResizedImage.Enqueue(outMs);
-                   }
+                       var sw = Stopwatch.StartNew();
+                       var outMs = new MemoryStream();
+                       using (var image = SixLabors.ImageSharp.Image.Load(ms))
+                       {
+                           image.Mutate(x => x.Resize(w, h));
+                           //image.SaveAsJpeg(outMs);
+                           //_queeuResizedImage.Enqueue(outMs);
+                           string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
 
-                   sw.Stop();
-                   _timeResize.Add(sw.ElapsedMilliseconds);
+                           _queueSaved.Enqueue(filename);
+
+                           await image.SaveAsync(filename);
+                       }
+
+                       sw.Stop();
+                       _timeResize.Add(sw.ElapsedMilliseconds);
+                   });
+
 
                }
                 , _batchResize);
 
 
-            WorkerKeepMaxRunning saveFileRunner = new WorkerKeepMaxRunning(
-                "FileSaver",
-              (ctx) =>
-               {
-                   if (!_queeuResizedImage.TryDequeue(out MemoryStream ms) || ms == null)
-                   {
-                       return;
-                   }
+            //WorkerKeepMaxRunning saveFileRunner = new WorkerKeepMaxRunning(
+            //    "FileSaver",
+            //  (ctx) =>
+            //   {
+            //       if (!_queeuResizedImage.TryDequeue(out MemoryStream ms) || ms == null)
+            //       {
+            //           return;
+            //       }
 
-                   var sw = Stopwatch.StartNew();
-                   ///var dateNow = DateTime.Now.ToString("yyyyMMddHHmmss");
-                   using (var bmp = new Bitmap(ms))
-                   {
-                       string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
-                       bmp.Save(filename);
+            //       var sw = Stopwatch.StartNew();
+            //       ///var dateNow = DateTime.Now.ToString("yyyyMMddHHmmss");
+            //       using (var bmp = new Bitmap(ms))
+            //       {
+            //           string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
+            //           bmp.Save(filename);
 
-                       _queueSaved.Enqueue(filename);
-                   }
+            //           _queueSaved.Enqueue(filename);
+            //       }
 
-                   sw.Stop();
-                   _timeSaveFile.Add(sw.ElapsedMilliseconds);
+            //       sw.Stop();
+            //       _timeSaveFile.Add(sw.ElapsedMilliseconds);
 
-               }
-                , _batchSaveFile);
+            //   }
+            //    , _batchSaveFile);
 
 
             downloadRunner.Start();
 
             resizeRunner.Start();
 
-            saveFileRunner.Start();
+            //saveFileRunner.Start();
 
 
             while (true)
             {
                 Console.WriteLine($"{_queueSaved.Count} --DownloadWorker:{downloadRunner.CurrentCount()} remain:{_queueUrl.Count} " +
                     $"--ResizeWorker:{resizeRunner.CurrentCount()} remain:{_queueDownloadedUrl.Count} "
-                    + $"--SaveFileWorker:{saveFileRunner.CurrentCount()} remain:{_queeuResizedImage.Count}"
+                   // + $"--SaveFileWorker:{saveFileRunner.CurrentCount()} remain:{_queeuResizedImage.Count}" 
+                   + $" --ThreadCount:{ThreadPool.ThreadCount}"
                     );
 
                 if (_queueSaved.Count >= totalItem)
@@ -207,7 +238,7 @@ namespace Ffmpeg.TestDownloadPicsum
 
                     downloadRunner.Stop();
                     resizeRunner.Stop();
-                    saveFileRunner.Stop();
+                    //   saveFileRunner.Stop();
 
                     break;
                 }
@@ -246,6 +277,7 @@ namespace Ffmpeg.TestDownloadPicsum
             Console.WriteLine("Everage download in miliseconds: " + _timeDownloads.Sum() / _totalItem);
             Console.WriteLine("Everage resize in miliseconds: " + _timeResize.Sum() / _totalItem);
             Console.WriteLine("Everage save file in miliseconds: " + _timeSaveFile.Sum() / _totalItem);
+            Console.WriteLine($"Thread count: {ThreadPool.ThreadCount}");
 
         }
 
@@ -278,7 +310,7 @@ namespace Ffmpeg.TestDownloadPicsum
 
         public event Action<WorkerKeepMaxRunning> OnStoped;
         Action<WorkerKeepMaxRunning> _onRelease;
-        public WorkerKeepMaxRunning(string name, Action<WorkerKeepMaxRunning> a, int max = 2, int sleep = 1, Action<WorkerKeepMaxRunning> onRelease=null)
+        public WorkerKeepMaxRunning(string name, Action<WorkerKeepMaxRunning> a, int max = 2, int sleep = 100, Action<WorkerKeepMaxRunning> onRelease = null)
         {
             _name = name;
             _a = a;
@@ -316,16 +348,22 @@ namespace Ffmpeg.TestDownloadPicsum
 
                     var t = Task.Run(() =>
                          {
-                             _a(this);
+                             try
+                             {
+                                 _a(this);
 
-                             lock (_lock) _current--;
-
-                             _onRelease?.Invoke(this);
+                                 lock (_lock) _current--;
+                                 _onRelease?.Invoke(this);
+                             }
+                             catch (Exception ex)
+                             {
+                                 Console.WriteLine(ex.Message);
+                             }
                          });
                     _tasks.Add(t);
                 }
                 finally
-                {                  
+                {
                     Thread.Sleep(_sleep);
                 }
             }
