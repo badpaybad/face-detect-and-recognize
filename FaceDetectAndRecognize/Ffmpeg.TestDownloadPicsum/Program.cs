@@ -33,11 +33,11 @@ namespace Ffmpeg.TestDownloadPicsum
 
         static int _totalItem = 1000;
 
-        static int _batchDownload = 10;
+        static int _batchDownload = 50;
 
-        static int _batchResize = 4;
+        static int _batchResize = 12;
 
-        static int _batchSaveFile = 10;
+        static int _batchSaveFile = 12;
 
         static object _lock = new object();
        
@@ -67,6 +67,7 @@ namespace Ffmpeg.TestDownloadPicsum
                    if (!_queueUrl.TryDequeue(out string url) || string.IsNullOrEmpty(url))
                    {
                        if (ctx != null) ctx.Stop();
+                       
                        return;
                    }
 
@@ -87,8 +88,17 @@ namespace Ffmpeg.TestDownloadPicsum
 
                    sw.Stop();
                    _timeDownloads.Add(sw.ElapsedMilliseconds);
+                   
                }
                 , _batchDownload);
+
+            downloadRunner.OnStoped += (ctx)=> {
+                if (_queueUrl.Count == 0 && ctx.IsStoped())
+                {
+                    var dNow = DateTime.Now;
+                    Console.WriteLine($"Download all in: {dNow.Subtract(_start).TotalMilliseconds}");
+                }
+            };
 
             int w = 200;
             int h = 300;
@@ -188,6 +198,8 @@ namespace Ffmpeg.TestDownloadPicsum
             Console.WriteLine("Done");
         }
 
+       
+
         static void CaclculateStop()
         {
             var dateNow = DateTime.Now;
@@ -232,6 +244,8 @@ namespace Ffmpeg.TestDownloadPicsum
 
         List<Task> _tasks = new List<Task>();
 
+        public event Action<WorkerKeepMaxRunning> OnStoped;
+
         public WorkerKeepMaxRunning(string name, Action<WorkerKeepMaxRunning> a, int max = 2, int sleep = 10)
         {
             _name = name;
@@ -248,6 +262,10 @@ namespace Ffmpeg.TestDownloadPicsum
             //return _semaphoreObject == null ? 0 : _semaphoreObject.CurrentCount;
         }
 
+        public bool IsStoped()
+        {
+            return _isStop;
+        }
         void Loop()
         {
             while (!_isStop)
@@ -263,17 +281,7 @@ namespace Ffmpeg.TestDownloadPicsum
                          {
                              _a(this);
 
-                             lock (_lock) _current--;
-                           //if (_semaphoreObject != null && _semaphoreObject.Wait(_sleep))
-                           //{
-                           //    if (!_isStop)
-                           //    {
-                           //        _a(this);
-
-                           //        _semaphoreObject.Release();
-                           //    }
-                           //}
-
+                             lock (_lock) _current--;                          
                        });
                     _tasks.Add(t);
                 }
@@ -282,9 +290,13 @@ namespace Ffmpeg.TestDownloadPicsum
                     Thread.Sleep(_sleep);
                 }
             }
-            _semaphoreObject = null;
             
             Task.WhenAll(_tasks).GetAwaiter().GetResult();
+
+            if (OnStoped != null)
+            {
+                OnStoped(this);
+            }
 
             Console.WriteLine($"{_name} stoped");
         }
