@@ -52,60 +52,51 @@ namespace Ffmpeg.TestDownloadPicsum
         static SemaphoreSlim _semaphore;
         private static void DoMaxParallelTask()
         {
-            _semaphore = new SemaphoreSlim(_batchDownload);
+
 
             Console.WriteLine($"Semarphore with size {_batchDownload} total item {_queueUrl.Count}");
             List<Task> allTask = new List<Task>();
 
             var allSw = Stopwatch.StartNew();
+            _semaphore = new SemaphoreSlim(_batchDownload);
             while (_queueUrl.TryDequeue(out string url) && !string.IsNullOrEmpty(url))
             {
                 _semaphore.Wait();
-
-                Console.WriteLine($"Remain:{_queueUrl.Count} Thread:{ThreadPool.ThreadCount} ");
-
+                Console.WriteLine($"Remain {_queueUrl.Count} Thread:{ThreadPool.ThreadCount}");
                 Task.Run(async () =>
-                    {
-                        var swd = Stopwatch.StartNew();
+                    {                       
+                        var swd= Stopwatch.StartNew();
                         HttpClient httpClient = new HttpClient();
                         httpClient.BaseAddress = new Uri(url);
                         var stream = await httpClient.GetStreamAsync(url);
-                        var ms = new MemoryStream();
-                        stream.CopyTo(ms);
                         swd.Stop();
                         _timeDownloads.Add(swd.ElapsedMilliseconds);
+                        _semaphore.Release();
+                        var ms = new MemoryStream();
+                        stream.CopyTo(ms);
 
-                       var t= Task.Run(async () =>
-                        {
-                            var sw = Stopwatch.StartNew();
+                        var t = Task.Run(async () =>
+                          {
+                              var sw = Stopwatch.StartNew();
 
-                            string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
+                              string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
 
-                            using (var image = SixLabors.ImageSharp.Image.Load(ms.ToArray()))
-                            {
-                                image.Mutate(x => x.Resize(w, h));
+                              using (var image = SixLabors.ImageSharp.Image.Load(ms.ToArray()))
+                              {
+                                  image.Mutate(x => x.Resize(w, h));
 
-                                _queueSaved.Enqueue(filename);
+                                  _queueSaved.Enqueue(filename);
 
-                                await image.SaveAsync(filename);
-                            }
-                            sw.Stop();
-
-                            //Console.WriteLine($"Saved file: {sw.ElapsedMilliseconds} at: {filename}");
-
-                            _semaphore.Release();
-                        });
-
+                                  await image.SaveAsync(filename);
+                              }
+                              sw.Stop();
+                          });
                         allTask.Add(t);
-
                     });
             }
-
             Task.WhenAll(allTask).GetAwaiter().GetResult();
-
             allSw.Stop();
-
-            Console.WriteLine($"All include while loop in {allSw.ElapsedMilliseconds}");
+            Console.WriteLine($"All include while loop in {allSw.ElapsedMilliseconds} total download time {_timeDownloads.Sum()}");
 
         }
         public static void Main()
