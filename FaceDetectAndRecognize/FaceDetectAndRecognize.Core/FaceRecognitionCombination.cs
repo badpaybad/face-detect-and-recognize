@@ -57,6 +57,16 @@ namespace FaceDetectAndRecognize.Core
         {
             _originImageToTrain = faceToTrain;
 
+            eigenModelFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "eigenModel.txt");
+            lbphModelFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "lbphModel.txt");
+            if (File.Exists(eigenModelFile) && File.Exists(lbphModelFile))
+            {
+                _eigenRecognizer.Read(eigenModelFile);
+                _lBPHFaceRecognizer.Read(lbphModelFile);
+
+                return this;
+            }
+
             BatchProcess.SplitToRun(_originImageToTrain, (itemsOrg) =>
             {
                 foreach (var f1 in itemsOrg)
@@ -97,9 +107,6 @@ namespace FaceDetectAndRecognize.Core
 
             }, 3);
 
-            eigenModelFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "eigenModel.txt");
-            lbphModelFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "lbphModel.txt");
-
             if (File.Exists(eigenModelFile) == false || File.Exists(lbphModelFile) == false)
             {
 
@@ -124,11 +131,6 @@ namespace FaceDetectAndRecognize.Core
 
                 _lBPHFaceRecognizer.Write(lbphModelFile);
             }
-            else
-            {
-                _eigenRecognizer.Read(eigenModelFile);
-                _lBPHFaceRecognizer.Read(lbphModelFile);
-            }
             return this;
         }
 
@@ -141,6 +143,15 @@ namespace FaceDetectAndRecognize.Core
         {
             var faces = DetectFace(photo);
             List<Result> results = new List<Result>();
+
+            if (_faceWidth == 0)
+            {
+                _faceWidth = faces.Select(i => i.Key.Width).Sum() / faces.Count;
+            }
+            if (_faceHeight == 0)
+            {
+                _faceHeight = faces.Select(i => i.Key.Height).Sum() / faces.Count;
+            }
 
             foreach (var f1 in faces)
             {
@@ -331,4 +342,4 @@ namespace FaceDetectAndRecognize.Core
 
         }
     }
-    }
+}
