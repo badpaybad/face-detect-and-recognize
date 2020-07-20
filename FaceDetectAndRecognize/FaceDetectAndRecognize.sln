@@ -9,7 +9,9 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "FaceDetectAndRecognize.Usag
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "FaceDetectAndRecognize.ConsoleFindInAlbum", "FaceDetectAndRecognize.ConsoleFindInAlbum\FaceDetectAndRecognize.ConsoleFindInAlbum.csproj", "{7C661A72-39BE-4542-881E-5A7D151B04D7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ffmpeg.TestDownloadPicsum", "Ffmpeg.TestDownloadPicsum\Ffmpeg.TestDownloadPicsum.csproj", "{92F60FBE-F7C3-453B-B9ED-EFBE042422CC}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Ffmpeg.TestDownloadPicsum", "Ffmpeg.TestDownloadPicsum\Ffmpeg.TestDownloadPicsum.csproj", "{92F60FBE-F7C3-453B-B9ED-EFBE042422CC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StaticCodeScanner.PhpLanguage", "StaticCodeScanner.PhpLanguage\StaticCodeScanner.PhpLanguage.csproj", "{EBFF1FFC-0DF5-4F7B-8673-F8C33213AD77}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -33,6 +35,10 @@ Global
 		{92F60FBE-F7C3-453B-B9ED-EFBE042422CC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{92F60FBE-F7C3-453B-B9ED-EFBE042422CC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{92F60FBE-F7C3-453B-B9ED-EFBE042422CC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EBFF1FFC-0DF5-4F7B-8673-F8C33213AD77}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EBFF1FFC-0DF5-4F7B-8673-F8C33213AD77}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EBFF1FFC-0DF5-4F7B-8673-F8C33213AD77}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EBFF1FFC-0DF5-4F7B-8673-F8C33213AD77}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
