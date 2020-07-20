@@ -50,53 +50,57 @@ namespace Ffmpeg.TestDownloadPicsum
 
         //static will thread safe
         static SemaphoreSlim _semaphore;
-        private static void DoMaxParallelTask()
+        private static void DoMaxParallelTask(ConcurrentQueue<string> queue)
         {
-
-
             Console.WriteLine($"Semarphore with size {_batchDownload} total item {_queueUrl.Count}");
             List<Task> allTask = new List<Task>();
-
             var allSw = Stopwatch.StartNew();
             _semaphore = new SemaphoreSlim(_batchDownload);
-            while (_queueUrl.TryDequeue(out string url) && !string.IsNullOrEmpty(url))
+            while (queue.TryDequeue(out string url) && !string.IsNullOrEmpty(url))
             {
                 _semaphore.Wait();
                 Console.WriteLine($"Remain {_queueUrl.Count} Thread:{ThreadPool.ThreadCount}");
                 Task.Run(async () =>
-                    {                       
-                        var swd= Stopwatch.StartNew();
+                {
+                    var ms = new MemoryStream();
+                    try
+                    {
+                        var swd = Stopwatch.StartNew();
                         HttpClient httpClient = new HttpClient();
                         httpClient.BaseAddress = new Uri(url);
                         var stream = await httpClient.GetStreamAsync(url);
+                        stream.CopyTo(ms);
                         swd.Stop();
                         _timeDownloads.Add(swd.ElapsedMilliseconds);
+                    }
+                    catch
+                    {
+                        _queueUrl.Enqueue(url);
+                    }
+                    finally
+                    {
                         _semaphore.Release();
-                        var ms = new MemoryStream();
-                        stream.CopyTo(ms);
+                    }
 
-                        var t = Task.Run(async () =>
+                    var t = Task.Run(async () =>
+                      {
+                          var sw = Stopwatch.StartNew();
+                          string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
+                          using (var image = SixLabors.ImageSharp.Image.Load(ms.ToArray()))
                           {
-                              var sw = Stopwatch.StartNew();
-
-                              string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
-
-                              using (var image = SixLabors.ImageSharp.Image.Load(ms.ToArray()))
-                              {
-                                  image.Mutate(x => x.Resize(w, h));
-
-                                  _queueSaved.Enqueue(filename);
-
-                                  await image.SaveAsync(filename);
-                              }
-                              sw.Stop();
-                          });
-                        allTask.Add(t);
-                    });
+                              image.Mutate(x => x.Resize(w, h));
+                              _queueSaved.Enqueue(filename);
+                              await image.SaveAsync(filename);
+                          }
+                          sw.Stop();
+                          _timeSaveFile.Add(sw.ElapsedMilliseconds);
+                      });
+                    allTask.Add(t);
+                });
             }
             Task.WhenAll(allTask).GetAwaiter().GetResult();
             allSw.Stop();
-            Console.WriteLine($"All include while loop in {allSw.ElapsedMilliseconds} total download time {_timeDownloads.Sum()}");
+            Console.WriteLine($"All include while loop in {allSw.ElapsedMilliseconds} total download time {_timeDownloads.Sum()} time save file {_timeSaveFile.Sum()}");
 
         }
         public static void Main()
@@ -155,7 +159,7 @@ namespace Ffmpeg.TestDownloadPicsum
             Console.WriteLine($"Init total items: {_totalItem}");
             _start = DateTime.Now;
 
-            Task.Run(DoMaxParallelTask);
+            Task.Run(()=> { DoMaxParallelTask(_queueUrl); });
 
             Console.ReadLine();
 
