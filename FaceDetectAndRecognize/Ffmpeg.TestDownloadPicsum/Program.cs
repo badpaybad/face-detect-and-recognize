@@ -33,7 +33,7 @@ namespace Ffmpeg.TestDownloadPicsum
 
         static int _totalItem = 1000;
 
-        static int _batchDownload = 100;
+        static int _batchDownload = 12;
 
         static int _batchResize = 12;
 
@@ -41,8 +41,36 @@ namespace Ffmpeg.TestDownloadPicsum
 
         static object _lock = new object();
 
+        static List<object> test = new List<object>();
+
         public static void Main()
         {
+            //var xtest = new WorkerKeepMaxRunning("Test", (ctx) =>
+            //{
+            //    Task.Run(()=> {
+            //        lock (_lock) test.Add(DateTime.Now);
+
+            //        Thread.Sleep(2000);
+            //    });
+                
+
+            //}, 100, 1, (ctx) =>
+            //{
+            //    lock (_lock) if (test.Count > 0) test.RemoveAt(0);
+            //});
+            //xtest.Start();
+
+            //while (true)
+            //{
+            //    var counter = 0;
+            //    lock (_lock) counter = test.Count;
+            //    Console.WriteLine($"{counter} / {xtest.CurrentCount()}");
+
+            //    Thread.Sleep(1000);
+            //}
+
+            //return;
+
             var totalItem = _totalItem;
 
             _dirTemp = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
@@ -52,9 +80,9 @@ namespace Ffmpeg.TestDownloadPicsum
 
             for (var i = 0; i < totalItem; i++)
             {
-                urls.Add("https://picsum.photos/600/900");
+                urls.Add("https://picsum.photos/2560/1440");
 
-                _queueUrl.Enqueue("https://picsum.photos/600/900");
+                _queueUrl.Enqueue("https://picsum.photos/2560/1440");
             }
 
             Console.WriteLine($"Init total items: {_totalItem}");
@@ -92,6 +120,7 @@ namespace Ffmpeg.TestDownloadPicsum
                            if (ctx != null) ctx.Stop();
                        }
                    });
+                   //.GetAwaiter().GetResult();
                }
                 , _batchDownload);
 
@@ -104,8 +133,9 @@ namespace Ffmpeg.TestDownloadPicsum
                 }
             };
 
-            int w = 200;
-            int h = 300;
+            //2048 × 1536
+            int w = 2560;
+            int h = 1440;
 
             WorkerKeepMaxRunning resizeRunner = new WorkerKeepMaxRunning(
                 "ImageResizer",
@@ -220,12 +250,11 @@ namespace Ffmpeg.TestDownloadPicsum
 
         }
 
-        static int _bufferDơnload = 1024 * 4;
-
+        static int _bufferDownload = 1024 * 4;
 
         public static void CopyStream(Stream input, Stream output)
         {
-            byte[] buffer = new byte[_bufferDơnload];
+            byte[] buffer = new byte[_bufferDownload];
             int read;
             while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
             {
@@ -249,14 +278,15 @@ namespace Ffmpeg.TestDownloadPicsum
         List<Task> _tasks = new List<Task>();
 
         public event Action<WorkerKeepMaxRunning> OnStoped;
-
-        public WorkerKeepMaxRunning(string name, Action<WorkerKeepMaxRunning> a, int max = 2, int sleep = 10)
+        Action<WorkerKeepMaxRunning> _onRelease;
+        public WorkerKeepMaxRunning(string name, Action<WorkerKeepMaxRunning> a, int max = 2, int sleep = 1, Action<WorkerKeepMaxRunning> onRelease=null)
         {
             _name = name;
             _a = a;
             _max = max;
             _sleep = sleep;
             //_semaphoreObject = new SemaphoreSlim(1, _max);
+            _onRelease = onRelease;
             _thread = new Thread(() => { Loop(); });
         }
 
@@ -278,7 +308,10 @@ namespace Ffmpeg.TestDownloadPicsum
                 {
                     lock (_lock)
                     {
-                        if (_current >= _max) continue;
+                        if (_current >= _max)
+                        {
+                            continue;
+                        }
                         _current++;
                     }
 
@@ -287,21 +320,20 @@ namespace Ffmpeg.TestDownloadPicsum
                              _a(this);
 
                              lock (_lock) _current--;
+
+                             _onRelease?.Invoke(this);
                          });
                     _tasks.Add(t);
                 }
                 finally
-                {
+                {                  
                     Thread.Sleep(_sleep);
                 }
             }
 
             Task.WhenAll(_tasks).GetAwaiter().GetResult();
 
-            if (OnStoped != null)
-            {
-                OnStoped(this);
-            }
+            OnStoped?.Invoke(this);
 
             Console.WriteLine($"{_name} stoped");
         }
