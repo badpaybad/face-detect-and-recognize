@@ -30,18 +30,13 @@ namespace Ffmpeg.TestDownloadPicsum
             Console.WriteLine($"Will save to dir: {dirTemp}");
 
             List<Task> allTask = new List<Task>();
-            
             var allSw = Stopwatch.StartNew();
-
             var semaphore = new SemaphoreSlim(maxParallel);
-
             List<long> timedownloads = new List<long>();
             List<long> timeSaveFile = new List<long>();
-
             while (queue.TryDequeue(out string url) && !string.IsNullOrEmpty(url))
             {
                 semaphore.Wait();
-                //Console.WriteLine($"Remain {queue.Count} Thread:{ThreadPool.ThreadCount}");
                 var td = Task.Run(async () =>
                   {
                       var ms = new MemoryStream();
@@ -77,10 +72,8 @@ namespace Ffmpeg.TestDownloadPicsum
                         });
                       allTask.Add(t);
                   });
-
                 allTask.Add(td);
             }
-
             Task.WaitAll(allTask.ToArray());
             allSw.Stop();
             Console.WriteLine($"All include while loop in {allSw.ElapsedMilliseconds} total download time {timedownloads.Sum()} time save file {timeSaveFile.Sum()}");
