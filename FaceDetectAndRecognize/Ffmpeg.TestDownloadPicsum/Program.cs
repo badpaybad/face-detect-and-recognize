@@ -1,4 +1,5 @@
 ﻿using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Processing;
 using System;
 using System.Collections.Concurrent;
@@ -22,75 +23,133 @@ namespace Ffmpeg.TestDownloadPicsum
 
         static int w = 200;
         static int h = 300;
-       
-        private static void DoMaxParallelTask(ConcurrentQueue<string> queue, int maxParallel)
-        {
-            var dirTemp = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
-            if (Directory.Exists(dirTemp) == false) Directory.CreateDirectory(dirTemp);
-            Console.WriteLine($"Will save to dir: {dirTemp}");
 
-            List<Task> allTask = new List<Task>();
-            var allSw = Stopwatch.StartNew();
+        private static async Task<long> DoMaxParallelTask<Tin, Tout>(string name, ConcurrentQueue<Tin> queueInput, ConcurrentQueue<Tout> queueOut
+            , Action<Tin> doOne, int maxParallel, int totalSize)
+        {
+            List<Task> allTask = new List<Task>(); var allSw = Stopwatch.StartNew();
             var semaphore = new SemaphoreSlim(maxParallel);
-            List<long> timedownloads = new List<long>();
-            List<long> timeSaveFile = new List<long>();
-            while (queue.TryDequeue(out string url) && !string.IsNullOrEmpty(url))
+            Tout _nullObj = default(Tout); Tin objIn = default(Tin); var counter = 0;
+            while (counter < totalSize)
             {
-                semaphore.Wait();
-                var td = Task.Run(async () =>
-                  {
-                      var ms = new MemoryStream();
-                      try
-                      {
-                          var swd = Stopwatch.StartNew();
-                          HttpClient httpClient = new HttpClient();
-                          httpClient.BaseAddress = new Uri(url);
-                          var stream = await httpClient.GetStreamAsync(url);
-                          stream.CopyTo(ms);
-                          swd.Stop();
-                          timedownloads.Add(swd.ElapsedMilliseconds);
-                      }
-                      catch
-                      {
-                          queue.Enqueue(url);
-                      }
-                      finally
-                      {
-                          semaphore.Release();
-                      }
-                      var t = Task.Run(async () =>
+                if ((queueInput.TryDequeue(out objIn) && objIn != null))
+                {
+                    await semaphore.WaitAsync();
+                    counter++;
+                    var td = Task.Run(() =>
+                    {
+                        if (objIn == null) return;
+
+                        Tout objOut = _nullObj;
+                        try
                         {
-                            var sw = Stopwatch.StartNew();
-                            string filename = Path.Combine(dirTemp, $"{Guid.NewGuid()}.jpg");
-                            using (var image = SixLabors.ImageSharp.Image.Load(ms.ToArray()))
-                            {
-                                image.Mutate(x => x.Resize(w, h));
-                                await image.SaveAsync(filename);
-                            }
-                            sw.Stop();
-                            timeSaveFile.Add(sw.ElapsedMilliseconds);
-                        });
-                      allTask.Add(t);
-                  });
-                allTask.Add(td);
+                            doOne(objIn);
+                        }
+                        catch (Exception ex)
+                        {
+                            queueInput.Enqueue(objIn);
+                            Console.WriteLine($"{name} {ex.Message}");
+                        }
+                        finally
+                        {
+                            semaphore.Release();
+                        }
+                    });
+
+                    allTask.Add(td);
+                }
+
+                await Task.Delay(1);
             }
-            Task.WaitAll(allTask.ToArray());
+            Console.WriteLine($"{name}:{queueInput.Count} ");
+            await Task.WhenAll(allTask);
             allSw.Stop();
-            Console.WriteLine($"All include while loop in {allSw.ElapsedMilliseconds} total download time {timedownloads.Sum()} time save file {timeSaveFile.Sum()}");
-
+            return allSw.ElapsedMilliseconds;
         }
-        public static void Main()
+
+        public static async Task Main()
         {
-            int.TryParse(ConfigurationManager.AppSettings["batch_download"], out int batchDownload);
+            ConcurrentQueue<string> queueUrl = new ConcurrentQueue<string>();
+            ConcurrentQueue<byte[]> queueDownloaded = new ConcurrentQueue<byte[]>();
+            ConcurrentQueue<byte[]> queueResized = new ConcurrentQueue<byte[]>();
 
-            ConcurrentQueue<string> queue = new ConcurrentQueue<string>();
+            var totalItem = 100;
 
-            for (var i= 0; i < 1000;i++)
+            for (var i = 0; i < totalItem; i++)
             {
-                queue.Enqueue("https://picsum.photos/600/900");
+                queueUrl.Enqueue("https://picsum.photos/600/900");
             }
 
-            DoMaxParallelTask(queue, batchDownload);
+            var t = Task.Run(async () =>
+            {
+                while (queueUrl.Count != 0 || queueDownloaded.Count != 0 || queueResized.Count != 0)
+                {
+                    Console.WriteLine($"url: {queueUrl.Count} download:{queueDownloaded.Count} resize:{queueResized.Count}");
+
+                    await Task.Delay(1000);
+                }
+            });
+
+            var sw = Stopwatch.StartNew();
+            var startTime = DateTime.Now;
+
+            var td = DoMaxParallelTask<string, byte[]>("Download", queueUrl, queueDownloaded, async (objIn) =>
+            {
+               //  Console.WriteLine($"Download Thread {ThreadPool.ThreadCount} ThreadId:{Thread.CurrentThread.ManagedThreadId}");
+               HttpClient httpClient = new HttpClient();
+                httpClient.BaseAddress = new Uri(objIn);
+
+                var r = await httpClient.GetByteArrayAsync(objIn);
+                queueDownloaded.Enqueue(r);
+
+            }, 96, totalItem);
+
+            var tr = DoMaxParallelTask<byte[], byte[]>("Resize", queueDownloaded, queueResized, (objIn) =>
+            {
+                // Console.WriteLine($"Resize Thread {ThreadPool.ThreadCount} ThreadId:{Thread.CurrentThread.ManagedThreadId}");
+                var ms = new MemoryStream();
+                using (var image = SixLabors.ImageSharp.Image.Load(objIn))
+                {
+                    image.Mutate(x => x.Resize(w, h));
+                    image.SaveAsJpeg(ms, new JpegEncoder
+                    {
+                        Quality = 80
+                    });
+                }
+                queueResized.Enqueue(ms.ToArray());
+            }, 48, totalItem);
+
+            var dirTemp = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
+            if (Directory.Exists(dirTemp)) Directory.CreateDirectory(dirTemp);
+
+            var ts = DoMaxParallelTask("Save file", queueResized, (ConcurrentQueue<string>)null, (objIn) =>
+            {
+                //Console.WriteLine($"Save File Thread {ThreadPool.ThreadCount} ThreadId:{Thread.CurrentThread.ManagedThreadId}");
+                string filename = Path.Combine(dirTemp, $"{Guid.NewGuid()}.jpg");
+                var ms = new MemoryStream();
+                using (var image = SixLabors.ImageSharp.Image.Load(objIn))
+                {
+                    image.Save(filename);
+                }
+
+                int cfile = Directory.GetFiles(dirTemp).Count();
+                if (cfile == totalItem)
+                {
+                    var dNow = DateTime.Now;
+                    var elasped = dNow.Subtract(startTime).TotalMilliseconds;
+                    Console.WriteLine($"All file save to disk {cfile} in {elasped}");
+                }
+
+            }, 96, totalItem);
+
+            await Task.WhenAll(new List<Task> { td, tr, ts });
+
+            sw.Stop();
+
+            await t;
+
+            Console.WriteLine($"All in {sw.ElapsedMilliseconds}");
+
 
             Console.ReadLine();
 
