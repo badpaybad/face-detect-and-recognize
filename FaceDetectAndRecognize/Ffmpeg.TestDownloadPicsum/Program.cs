@@ -18,331 +18,93 @@ namespace Ffmpeg.TestDownloadPicsum
 {
     class Program
     {
-        static DateTime _start;
-        static string _dirTemp;
 
-        static ConcurrentQueue<string> _queueUrl = new ConcurrentQueue<string>();
-        static ConcurrentQueue<byte[]> _queueDownloadedUrl = new ConcurrentQueue<byte[]>();
-
-        static ConcurrentQueue<string> _queueSaved = new ConcurrentQueue<string>();
-
-        static ConcurrentQueue<MemoryStream> _queeuResizedImage = new ConcurrentQueue<MemoryStream>();
-
-        static List<long> _timeDownloads = new List<long>();
-        static List<long> _timeResize = new List<long>();
-        static List<long> _timeSaveFile = new List<long>();
-
-        static int _totalItem = 1000;
-
-        static int _batchDownload = 12;
-
-        static int _batchResize = 12;
-
-        static int _batchSaveFile = 12;
-
-        static object _lock = new object();
-
-        static List<object> test = new List<object>();
 
         static int w = 200;
         static int h = 300;
-        static int _taskCurrentCount;
-
-        //static will thread safe
-        static SemaphoreSlim _semaphore;
-        private static void DoMaxParallelTask(ConcurrentQueue<string> queue)
+       
+        private static void DoMaxParallelTask(ConcurrentQueue<string> queue, int maxParallel)
         {
-            Console.WriteLine($"Semarphore with size {_batchDownload} total item {_queueUrl.Count}");
+            var dirTemp = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
+            if (Directory.Exists(dirTemp) == false) Directory.CreateDirectory(dirTemp);
+            Console.WriteLine($"Will save to dir: {dirTemp}");
+
             List<Task> allTask = new List<Task>();
+            
             var allSw = Stopwatch.StartNew();
-            _semaphore = new SemaphoreSlim(_batchDownload);
+
+            var semaphore = new SemaphoreSlim(maxParallel);
+
+            List<long> timedownloads = new List<long>();
+            List<long> timeSaveFile = new List<long>();
+
             while (queue.TryDequeue(out string url) && !string.IsNullOrEmpty(url))
             {
-                _semaphore.Wait();
-                Console.WriteLine($"Remain {_queueUrl.Count} Thread:{ThreadPool.ThreadCount}");
-                Task.Run(async () =>
-                {
-                    var ms = new MemoryStream();
-                    try
-                    {
-                        var swd = Stopwatch.StartNew();
-                        HttpClient httpClient = new HttpClient();
-                        httpClient.BaseAddress = new Uri(url);
-                        var stream = await httpClient.GetStreamAsync(url);
-                        stream.CopyTo(ms);
-                        swd.Stop();
-                        _timeDownloads.Add(swd.ElapsedMilliseconds);
-                    }
-                    catch
-                    {
-                        _queueUrl.Enqueue(url);
-                    }
-                    finally
-                    {
-                        _semaphore.Release();
-                    }
-
-                    var t = Task.Run(async () =>
+                semaphore.Wait();
+                //Console.WriteLine($"Remain {queue.Count} Thread:{ThreadPool.ThreadCount}");
+                var td = Task.Run(async () =>
+                  {
+                      var ms = new MemoryStream();
+                      try
                       {
-                          var sw = Stopwatch.StartNew();
-                          string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
-                          using (var image = SixLabors.ImageSharp.Image.Load(ms.ToArray()))
-                          {
-                              image.Mutate(x => x.Resize(w, h));
-                              _queueSaved.Enqueue(filename);
-                              await image.SaveAsync(filename);
-                          }
-                          sw.Stop();
-                          _timeSaveFile.Add(sw.ElapsedMilliseconds);
-                      });
-                    allTask.Add(t);
-                });
+                          var swd = Stopwatch.StartNew();
+                          HttpClient httpClient = new HttpClient();
+                          httpClient.BaseAddress = new Uri(url);
+                          var stream = await httpClient.GetStreamAsync(url);
+                          stream.CopyTo(ms);
+                          swd.Stop();
+                          timedownloads.Add(swd.ElapsedMilliseconds);
+                      }
+                      catch
+                      {
+                          queue.Enqueue(url);
+                      }
+                      finally
+                      {
+                          semaphore.Release();
+                      }
+                      var t = Task.Run(async () =>
+                        {
+                            var sw = Stopwatch.StartNew();
+                            string filename = Path.Combine(dirTemp, $"{Guid.NewGuid()}.jpg");
+                            using (var image = SixLabors.ImageSharp.Image.Load(ms.ToArray()))
+                            {
+                                image.Mutate(x => x.Resize(w, h));
+                                await image.SaveAsync(filename);
+                            }
+                            sw.Stop();
+                            timeSaveFile.Add(sw.ElapsedMilliseconds);
+                        });
+                      allTask.Add(t);
+                  });
+
+                allTask.Add(td);
             }
-            Task.WhenAll(allTask).GetAwaiter().GetResult();
+
+            Task.WaitAll(allTask.ToArray());
             allSw.Stop();
-            Console.WriteLine($"All include while loop in {allSw.ElapsedMilliseconds} total download time {_timeDownloads.Sum()} time save file {_timeSaveFile.Sum()}");
+            Console.WriteLine($"All include while loop in {allSw.ElapsedMilliseconds} total download time {timedownloads.Sum()} time save file {timeSaveFile.Sum()}");
 
         }
         public static void Main()
         {
-            int.TryParse(ConfigurationManager.AppSettings["total_item"], out _totalItem);
-            int.TryParse(ConfigurationManager.AppSettings["batch_download"], out _batchDownload);
-            int.TryParse(ConfigurationManager.AppSettings["batch_resize"], out _batchResize);
-            int.TryParse(ConfigurationManager.AppSettings["batch_savefile"], out _batchSaveFile);
+            int.TryParse(ConfigurationManager.AppSettings["batch_download"], out int batchDownload);
 
-            int.TryParse(ConfigurationManager.AppSettings["pic_width"], out int picWidth);
+            ConcurrentQueue<string> queue = new ConcurrentQueue<string>();
 
-            int.TryParse(ConfigurationManager.AppSettings["pic_height"], out int picHeight);
-            if (picHeight == 0) picHeight = 900;
-            if (picWidth == 0) picWidth = 600;
-            //var xtest = new WorkerKeepMaxRunning("Test", (ctx) =>
-            //{
-            //    Task.Run(()=> {
-            //        lock (_lock) test.Add(DateTime.Now);
-
-            //        Thread.Sleep(2000);
-            //    });
-
-
-            //}, 100, 1, (ctx) =>
-            //{
-            //    lock (_lock) if (test.Count > 0) test.RemoveAt(0);
-            //});
-            //xtest.Start();
-
-            //while (true)
-            //{
-            //    var counter = 0;
-            //    lock (_lock) counter = test.Count;
-            //    Console.WriteLine($"{counter} / {xtest.CurrentCount()}");
-
-            //    Thread.Sleep(1000);
-            //}
-
-            //return;
-
-            var totalItem = _totalItem;
-
-            _dirTemp = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
-            if (Directory.Exists(_dirTemp) == false) Directory.CreateDirectory(_dirTemp);
-
-            List<string> urls = new List<string>();
-
-            for (var i = 0; i < totalItem; i++)
+            for (var i= 0; i < 1000;i++)
             {
-                string item = $"https://picsum.photos/{picWidth}/{picHeight}";
-                urls.Add(item);
-
-                _queueUrl.Enqueue(item);
+                queue.Enqueue("https://picsum.photos/600/900");
             }
 
-            Console.WriteLine($"Init total items: {_totalItem}");
-            _start = DateTime.Now;
-
-            Task.Run(()=> { DoMaxParallelTask(_queueUrl); });
+            DoMaxParallelTask(queue, batchDownload);
 
             Console.ReadLine();
 
-            //test another way
-            return;
-
-            WorkerKeepMaxRunning downloadRunner = new WorkerKeepMaxRunning(
-                "UrlDownloader", _totalItem,
-               (ctx) =>
-               {
-                   if (!_queueUrl.TryDequeue(out string url) || string.IsNullOrEmpty(url))
-                   {
-                       return;
-                   }
-
-                   Task.Run(async () =>
-                   {
-                       var sw = Stopwatch.StartNew();
-                       using (HttpClient httpClient = new HttpClient())
-                       {
-                           httpClient.BaseAddress = new Uri(url);
-                           using (var ms = new MemoryStream())
-                           {
-                               using (var stream = await httpClient.GetStreamAsync(url))
-                               {
-                                   stream.CopyTo(ms);
-                                   _queueDownloadedUrl.Enqueue(ms.ToArray());
-                                   //var base64 = Convert.ToBase64String(ms.ToArray());
-                                   ///return ms.ToArray();
-                               }
-                           }
-                       }
-                       sw.Stop();
-                       _timeDownloads.Add(sw.ElapsedMilliseconds);
-                       if (_queueUrl.Count == 0)
-                       {
-                           if (ctx != null) ctx.Stop();
-                       }
-                   })
-                   //.ContinueWith((stream) => {
-                   //    using (var image = SixLabors.ImageSharp.Image.Load(stream.Result))
-                   //    {
-                   //        string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
-                   //        image.Save(filename);
-                   //    }
-                   //})
-                   ;//.GetAwaiter().GetResult();
-               }
-                , _batchDownload);
-
-            downloadRunner.OnStoped += (ctx) =>
-            {
-                if (_queueUrl.Count == 0 && ctx.IsStoped())
-                {
-                    var dNow = DateTime.Now;
-                    Console.WriteLine($"Download all in: {dNow.Subtract(_start).TotalMilliseconds}");
-                }
-            };
-
-            //2048 × 1536
-            int w = 2560;
-            int h = 1440;
-
-            WorkerKeepMaxRunning resizeRunner = new WorkerKeepMaxRunning(
-                "ImageResizer", _totalItem,
-               (ctx) =>
-               {
-                   if (!_queueDownloadedUrl.TryDequeue(out byte[] ms) || ms == null)
-                   {
-                       return;
-                   }
-
-                   Task.Run(async () =>
-                   {
-                       var sw = Stopwatch.StartNew();
-                       var outMs = new MemoryStream();
-                       using (var image = SixLabors.ImageSharp.Image.Load(ms))
-                       {
-                           image.Mutate(x => x.Resize(w, h));
-                           //image.SaveAsJpeg(outMs);
-                           //_queeuResizedImage.Enqueue(outMs);
-                           string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
-
-                           _queueSaved.Enqueue(filename);
-
-                           await image.SaveAsync(filename);
-                       }
-
-                       sw.Stop();
-                       _timeResize.Add(sw.ElapsedMilliseconds);
-                   });
-               }
-                , _batchResize);
-
-
-            //WorkerKeepMaxRunning saveFileRunner = new WorkerKeepMaxRunning(
-            //    "FileSaver",
-            //  (ctx) =>
-            //   {
-            //       if (!_queeuResizedImage.TryDequeue(out MemoryStream ms) || ms == null)
-            //       {
-            //           return;
-            //       }
-
-            //       var sw = Stopwatch.StartNew();
-            //       ///var dateNow = DateTime.Now.ToString("yyyyMMddHHmmss");
-            //       using (var bmp = new Bitmap(ms))
-            //       {
-            //           string filename = Path.Combine(_dirTemp, $"{Guid.NewGuid()}.jpg");
-            //           bmp.Save(filename);
-
-            //           _queueSaved.Enqueue(filename);
-            //       }
-
-            //       sw.Stop();
-            //       _timeSaveFile.Add(sw.ElapsedMilliseconds);
-
-            //   }
-            //    , _batchSaveFile);
-
-
-            downloadRunner.Start();
-
-            resizeRunner.Start();
-
-            //saveFileRunner.Start();
-
-
-            while (true)
-            {
-                Console.WriteLine($"{_queueSaved.Count} --DownloadWorker:{downloadRunner.CurrentCount()} remain:{_queueUrl.Count} " +
-                    $"--ResizeWorker:{resizeRunner.CurrentCount()} remain:{_queueDownloadedUrl.Count} "
-                   // + $"--SaveFileWorker:{saveFileRunner.CurrentCount()} remain:{_queeuResizedImage.Count}" 
-                   + $" --ThreadCount:{ThreadPool.ThreadCount}"
-                    );
-
-                if (_queueSaved.Count >= totalItem)
-                {
-                    CaclculateStop();
-
-                    downloadRunner.Stop();
-                    resizeRunner.Stop();
-                    //   saveFileRunner.Stop();
-
-                    break;
-                }
-
-                if (Console.KeyAvailable)
-                {
-                    Console.WriteLine("Type `quit` to exit");
-
-                    var cmd = Console.ReadLine();
-                    if (cmd == "quit")
-                    {
-                        downloadRunner.Stop();
-                        resizeRunner.Stop();
-                        // saveFileRunner.Stop();
-                        break;
-                    }
-                }
-                Thread.Sleep(2000);
-            }
-
-            Console.WriteLine("Done");
-        }
-
-
-        static void CaclculateStop()
-        {
-            var dateNow = DateTime.Now;
-
-            var distance = dateNow.Subtract(_start);
-
-            Console.WriteLine("Total download items: " + _totalItem);
-            Console.WriteLine("Total download in miliseconds: " + distance.TotalMilliseconds);
-            Console.WriteLine("Total download in seconds: " + distance.TotalSeconds);
-
-            Console.WriteLine("Everage download in miliseconds: " + _timeDownloads.Sum() / _totalItem);
-            Console.WriteLine("Everage resize in miliseconds: " + _timeResize.Sum() / _totalItem);
-            Console.WriteLine("Everage save file in miliseconds: " + _timeSaveFile.Sum() / _totalItem);
-            Console.WriteLine($"Thread count: {ThreadPool.ThreadCount}");
 
         }
+
+
 
         static int _bufferDownload = 1024 * 4;
 
