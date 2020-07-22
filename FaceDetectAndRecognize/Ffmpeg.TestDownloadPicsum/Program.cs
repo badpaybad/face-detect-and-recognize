@@ -17,6 +17,67 @@ using System.Threading.Tasks;
 
 namespace Ffmpeg.TestDownloadPicsum
 {
+    public class SlimActionBlock<T>
+    {
+        public class Options
+        {
+            public int MaxParallel = 2;
+        }
+        SemaphoreSlim _semaphore;
+        Action<T> _doJob;
+        bool _isStop;
+        Options _option;
+        ConcurrentQueue<T> _data = new ConcurrentQueue<T>();
+        Task _task;
+        List<Task> _subTask = new List<Task>();
+        public SlimActionBlock(Action<T> doJob, Options opt = null)
+        {
+            _doJob = doJob;
+            _option = opt ?? new Options();
+
+            _semaphore = new SemaphoreSlim(_option.MaxParallel);
+
+            _task = Task.Run(async () =>
+              {
+                  while (!_isStop)
+                  {
+                      if (_data.TryDequeue(out T itm))
+                      {
+                          await _semaphore.WaitAsync();
+                          var t = Task.Run(()=> {
+                              _doJob(itm);
+                              _semaphore.Release();
+                          });
+                          _subTask.Add(t);
+                      }
+
+                      await Task.Delay(1);
+                  }
+
+              });
+        }
+
+        public async Task Request(T item)
+        {
+            _data.Enqueue(item);
+            await Task.Delay(1);
+        }
+
+        public async Task Complete(bool forceComplete=false)
+        {
+            _isStop = true;
+            await Task.WhenAll(_subTask);
+            await _task;
+            
+            if (forceComplete) { return; }
+
+            while (_data.TryDequeue(out T itm))
+            {
+                _doJob(itm);
+            }
+        }
+    }
+
     class Program
     {
 
@@ -98,8 +159,8 @@ namespace Ffmpeg.TestDownloadPicsum
 
             var td = DoMaxParallelTask<string, byte[]>("Worker Download", queueUrl, queueDownloaded, async (objIn) =>
             {
-               //  Console.WriteLine($"Download Thread {ThreadPool.ThreadCount} ThreadId:{Thread.CurrentThread.ManagedThreadId}");
-               HttpClient httpClient = new HttpClient();
+                //  Console.WriteLine($"Download Thread {ThreadPool.ThreadCount} ThreadId:{Thread.CurrentThread.ManagedThreadId}");
+                HttpClient httpClient = new HttpClient();
                 httpClient.BaseAddress = new Uri(objIn);
 
                 var r = await httpClient.GetByteArrayAsync(objIn);
