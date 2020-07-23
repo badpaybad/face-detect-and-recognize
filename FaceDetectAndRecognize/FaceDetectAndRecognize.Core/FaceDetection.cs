@@ -1,6 +1,8 @@
 ﻿using Emgu.CV;
+using Emgu.CV.Cuda;
 using Emgu.CV.Face;
 using Emgu.CV.Structure;
+using Emgu.CV.Util;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -13,8 +15,27 @@ namespace FaceDetectAndRecognize.Core
 {
     //https://docs.opencv.org/2.4/modules/contrib/doc/facerec/facerec_tutorial.html
     //https://csharp.hotexamples.com/examples/Emgu.CV/EigenObjectRecognizer/-/php-eigenobjectrecognizer-class-examples.html
-    public class FaceDetection:IDisposable
+    public class FaceDetection : IDisposable
     {
+        public class FaceWithEyeDetected
+        {
+            public Image<Bgr, byte> Face;
+            public Rectangle FaceBound;
+
+            public Rectangle EyeLeft;
+            public Rectangle EyeRight;
+
+            public Rectangle Smile;
+
+            public Image<Bgr, byte> FaceCropedAndAligned;
+
+            /// <summary>
+            /// will matching late
+            /// </summary>
+            public int Identity;
+        }
+
+
         public class Result
         {
             public Image<Bgr, Byte> Face { get; set; }
@@ -32,6 +53,9 @@ namespace FaceDetectAndRecognize.Core
         static CascadeClassifier _faceDetector;
         static CascadeClassifier _eyeLeftDetector;
         static CascadeClassifier _eyeRightDetector;
+
+        // static CascadeClassifier _faceSmile;
+
         static Emgu.CV.Dnn.Net _dnnNetCaffe;
         static FaceDetection()
         {
@@ -46,43 +70,155 @@ namespace FaceDetectAndRecognize.Core
             _eyeRightDetector = new CascadeClassifier(
                       Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "emgumodel/haarcascade_righteye_2splits.xml"));
 
+            //_faceSmile = new CascadeClassifier(
+            //        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "emgumodel/haarcascade_smile.xml"));
+
             _dnnNetCaffe = Emgu.CV.Dnn.DnnInvoke.ReadNetFromCaffe(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dnnmodel/deploy.prototxt.txt")
              , Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dnnmodel/res10_300x300_ssd_iter_140000.caffemodel")
              //, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dnnmodel/face_model.caffemodel")
              );
         }
 
-        public List<KeyValuePair<Image<Bgr, byte>, Rectangle>> DetectByHaarCascade(Image<Bgr, byte> imgInput)
+        public List<FaceWithEyeDetected> DetectByHaarCascade(Image<Bgr, byte> imgInput)
         {
             Image<Gray, Byte> faceInput = imgInput.Convert<Gray, byte>();
 
             faceInput._EqualizeHist();
 
-            List<KeyValuePair<Image<Bgr, byte>, Rectangle>> faces = new List<KeyValuePair<Image<Bgr, byte>, Rectangle>>();
+            List<FaceWithEyeDetected> faces = new List<FaceWithEyeDetected>();
 
             //Detect the faces  from the gray scale image and store the locations as rectangle                   
             Rectangle[] facesDetected = _faceDetector.DetectMultiScale(faceInput, 1.05, 2, new Size(10, 10));
 
             foreach (var r in facesDetected)
             {
-                faces.Add(new KeyValuePair<Image<Bgr, byte>, Rectangle>(imgInput.GetSubRect(r), r));
-            }
+                //faces.Add(new KeyValuePair<Image<Bgr, byte>, Rectangle>(imgInput.GetSubRect(r), r));
+                var f = imgInput.GetSubRect(r);
+                Rectangle eyeL = _eyeLeftDetector.DetectMultiScale(f, 1.05, 2, new Size(10, 10)).FirstOrDefault();
+                Rectangle eyeR = _eyeRightDetector.DetectMultiScale(f, 1.05, 2, new Size(10, 10)).FirstOrDefault();
 
-            List<KeyValuePair<Image<Bgr, byte>, Rectangle>> founds = new List<KeyValuePair<Image<Bgr, byte>, Rectangle>>();
+                //var smile = _faceSmile.DetectMultiScale(f, 1.05, 2, new Size(10, 10)).FirstOrDefault();
 
-
-            foreach (var f in faces)
-            {
-                Rectangle[] eyeL = _eyeLeftDetector.DetectMultiScale(f.Key, 1.05, 2, new Size(10, 10));
-                Rectangle[] eyeR = _eyeRightDetector.DetectMultiScale(f.Key, 1.05, 2, new Size(10, 10));
-                if (eyeL.Length > 0 || eyeR.Length > 0)
+                if (eyeL != null && eyeR != null && eyeL.Width != 0 && eyeR.Width != 0 && eyeL.X != eyeR.X)
                 {
-                    founds.Add(f);
+                    var aligned = CropAndAlignFace(imgInput, eyeL.X, eyeL.Y, eyeR.X, eyeR.Y);
+                    
+                   //aligned.Save(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"ko/{Guid.NewGuid()}.jpg"));
+
+                    aligned.Save(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"ko/aligned_{Guid.NewGuid()}.jpg"));
+                    aligned.Save(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"ko/f_{Guid.NewGuid()}.jpg"));
+
+                    faces.Add(new FaceWithEyeDetected
+                    {
+                        Face = f,
+                        EyeLeft = eyeL,
+                        EyeRight = eyeR,
+                        FaceBound = r,
+                        // Smile = smile,
+                        FaceCropedAndAligned = aligned
+                    });
                 }
             }
-            //if (founds.Count == 0) return faces;
 
-            return founds;
+            return faces;
+        }
+
+        double Distance(float x1, float y1, float x2, float y2)
+        {
+            var dx = x2 - x1;
+            var dy = y2 - y1;
+            return Math.Sqrt(dx * dx + dy * dy);
+        }
+
+
+        public Image<Bgr, byte> CropAndAlignFace(Image<Bgr, byte> originImage, float eyeX1, float eyeY1, float eyeX2, float eyeY2, float offsetX = 0.3f, float offsetY = 0.3f, int w = 200, int h = 200)
+        {
+            //https://docs.opencv.org/2.4/modules/contrib/doc/facerec/facerec_tutorial.html
+            // calculate offsets in original image
+            var offset_h = Math.Floor(offsetX * w);
+            var offset_v = Math.Floor(offsetY * h);
+            var eye_directionX = eyeX2 - eyeX1;
+            var eye_directionY = eyeY2 - eyeY1;
+
+            // calc rotation angle in radians
+            var rotation = -Math.Atan2(eye_directionX, eye_directionY);
+            // calculate the reference eye-width
+            var reference = w - 2.0 * offset_h;
+            // distance between them
+            var dist = Distance(eyeX1, eyeY1, eyeX2, eyeY2);
+            // scale factor
+            var scale = dist / reference;
+
+            var rotated = originImage.Rotate(rotation, new PointF(eyeX1, eyeY1), Emgu.CV.CvEnum.Inter.Cubic, new Bgr(Color.Transparent), false);
+
+            //rotated.Save(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"ko/{Guid.NewGuid()}.jpg"));
+
+            var crop_x1 = eyeX1 - scale * offset_h;
+            var crop_y1 = eyeY1 - scale * offset_v;
+
+            var crop_sizeW = w * scale;
+            var crop_sizeH = h * scale;
+
+            if (crop_x1 < 0) crop_x1 = 0;
+            if (crop_y1 < 0) crop_y1 = 0;
+
+            if (crop_sizeW + crop_x1 > rotated.Width)
+            {
+                crop_sizeW = rotated.Width - crop_x1 - 1;
+            }
+
+            if (crop_sizeH + crop_y1 > rotated.Height)
+            {
+                crop_sizeH = rotated.Height - crop_y1 - 1;
+            }
+
+            var croped = rotated.GetSubRect(new Rectangle((int)crop_x1, (int)crop_y1, (int)crop_sizeW, (int)crop_sizeH));
+
+            return croped.Resize(w, h, Emgu.CV.CvEnum.Inter.Cubic);
+        }
+
+
+        /// <summary>
+        /// DrawFacemarks
+        /// </summary>
+        /// <param name="originImage"></param>
+        /// <param name="facesFound"></param>
+        /// <returns></returns>
+        public VectorOfVectorOfPointF FaceMark(Image<Bgr, Byte> originImage, List<FaceDetection.FaceWithEyeDetected> facesFound)
+        {
+            FacemarkLBFParams fParams = new FacemarkLBFParams();
+            fParams.ModelFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "haarcascades/lbfmodel.yaml");
+            fParams.NLandmarks = 2 * 68; // number of landmark points
+            fParams.InitShapeN = 10; // number of multiplier for make data augmentation
+            fParams.StagesN = 5; // amount of refinement stages
+            fParams.TreeN = 6; // number of tree in the model for each landmark point
+            fParams.TreeDepth = 5; //he depth of decision tree
+
+            var originImageGray = originImage.Convert<Gray, byte>();
+
+            originImage._EqualizeHist();
+
+            VectorOfRect faces = new VectorOfRect(facesFound.Select(i => i.FaceBound).ToArray());
+
+            FacemarkLBF facemark = new FacemarkLBF(fParams);
+
+            facemark.LoadModel(fParams.ModelFile);
+
+            VectorOfVectorOfPointF landmarks = new VectorOfVectorOfPointF();
+            bool success = facemark.Fit(originImageGray, faces, landmarks);
+            //if (success)
+            //{
+            //    Rectangle[] facesRect = faces.ToArray();
+            //    for (int i = 0; i < facesRect.Length; i++)
+            //    {
+            //        originImage.Draw(facesRect[i], new Gray() , 2);
+
+            //        FaceInvoke.DrawFacemarks(originImage, landmarks[i], new Bgr(Color.Blue).MCvScalar);
+            //    }
+
+            //}
+
+            return landmarks;
         }
 
         public List<KeyValuePair<Image<Bgr, byte>, Rectangle>> DetectByDnnCaffe(Image<Bgr, Byte> imgInput, float confidenceThreshold = 0.15f)
@@ -338,7 +474,7 @@ namespace FaceDetectAndRecognize.Core
 
                 if (facesToCompare.Count == 1)
                 {
-                    var inputFace = imgInput.GetSubRect(facesToCompare[0].Value);
+                    var inputFace = imgInput.GetSubRect(facesToCompare[0].FaceBound);
                     listInputToTrain.Add(inputFace);
                 }
             }
@@ -348,8 +484,8 @@ namespace FaceDetectAndRecognize.Core
             var maxWidth = listInputToTrain.Min(i => i.Width);
             var maxHeight = listInputToTrain.Min(i => i.Height);
 
-            var minWOrigin = facesFromOrigin.Min(i => i.Key.Width);
-            var minHOrigin = facesFromOrigin.Min(i => i.Key.Height);
+            var minWOrigin = facesFromOrigin.Min(i => i.Face.Width);
+            var minHOrigin = facesFromOrigin.Min(i => i.Face.Height);
 
             maxWidth = maxWidth > minWOrigin ? minWOrigin : maxWidth;
             maxHeight = maxHeight > minHOrigin ? minHOrigin : maxHeight;
@@ -392,7 +528,7 @@ namespace FaceDetectAndRecognize.Core
             {
                 //Image<Bgr, byte> item = _imgOrigin.GetSubRect(facesFromOrigin[i].Value).Convert<Bgr, byte>();
 
-                Image<Bgr, byte> item = facesFromOrigin[i].Key;
+                Image<Bgr, byte> item = facesFromOrigin[i].Face;
 
                 var f = item.Resize(maxWidth, maxHeight, Emgu.CV.CvEnum.Inter.Cubic).Convert<Gray, byte>();
 
@@ -411,8 +547,8 @@ namespace FaceDetectAndRecognize.Core
                 {
                     resultFound.Add(new Result
                     {
-                        Face = facesFromOrigin[i].Key,
-                        Position = facesFromOrigin[i].Value,
+                        Face = facesFromOrigin[i].Face,
+                        Position = facesFromOrigin[i].FaceBound,
                         EigenResult = new FaceRecognizer.PredictionResult
                         {
                             Distance = r2.Distance,

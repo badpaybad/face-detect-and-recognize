@@ -66,7 +66,9 @@ namespace Ffmpeg.TestDownloadPicsum
         public async Task Complete(bool forceComplete=false)
         {
             _isStop = true;
-            await Task.WhenAll(_subTask);
+            await Task.WhenAll(_subTask.Where(x => x.Status != TaskStatus.RanToCompletion)
+.Where(x => x.Status != TaskStatus.Faulted)
+.Where(x => x.Status != TaskStatus.Canceled));
             await _task;
             
             if (forceComplete) { return; }
@@ -80,8 +82,6 @@ namespace Ffmpeg.TestDownloadPicsum
 
     class Program
     {
-
-
         static int w = 200;
         static int h = 300;
 
@@ -121,7 +121,9 @@ namespace Ffmpeg.TestDownloadPicsum
                 }
                 await Task.Delay(1);
             }
-            await Task.WhenAll(allTask);
+            await Task.WhenAll(allTask.Where(x => x.Status != TaskStatus.RanToCompletion)
+                    .Where(x => x.Status != TaskStatus.Faulted)
+                    .Where(x => x.Status != TaskStatus.Canceled));
             allSw.Stop();
             Console.WriteLine($"{name} DONE remain:{queueInput.Count} ");
             return allSw.ElapsedMilliseconds;
@@ -151,8 +153,8 @@ namespace Ffmpeg.TestDownloadPicsum
             });
 
             var downloadParallel = 24*3;
-            var resizeParallel = 12;
-            var saveFileParallel = 12;
+            var resizeParallel = 24;
+            var saveFileParallel = 24;
 
             var sw = Stopwatch.StartNew();
             var startTime = DateTime.Now;

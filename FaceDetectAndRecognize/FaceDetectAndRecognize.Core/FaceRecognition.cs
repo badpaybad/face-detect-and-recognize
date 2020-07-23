@@ -86,7 +86,7 @@ namespace FaceDetectAndRecognize.Core
 
                 foreach (var x in foundFace)
                 {
-                    Image<Gray, byte> item = x.Key.Convert<Gray, byte>();
+                    Image<Gray, byte> item = x.Face.Convert<Gray, byte>();
                     _dataTrain.Add(item);
                 }
             }
