@@ -17,6 +17,68 @@ using System.Threading.Tasks;
 
 namespace Ffmpeg.TestDownloadPicsum
 {
+    public class MyActionBlock<T>
+    {
+        private readonly Func<T, Task> _func;
+        private readonly SemaphoreSlim _semaphore;
+        private readonly List<Task> _outstandingTasks;
+        private long _completed;
+
+        public MyActionBlock(Func<T, Task> func, int maxDegreeOfParallelism = 1)
+        {
+            _func = func;
+            _semaphore = new SemaphoreSlim(maxDegreeOfParallelism, maxDegreeOfParallelism);
+            _outstandingTasks = new List<Task>();
+            _completed = 0;
+        }
+
+        public async Task<bool> EnqueueAsync(T item)
+        {
+            if (Interlocked.Read(ref _completed) == 1)
+            {
+                return false;
+            }
+
+            await _semaphore.WaitAsync();
+
+            _outstandingTasks.Add(
+            Task.Run(
+            async () =>
+            {
+                try
+                {
+                    await _func(item);
+                }
+                finally
+                {
+                    _semaphore.Release();
+                }
+            }
+            )
+            );
+
+            return true;
+        }
+
+        public void Complete()
+        {
+            Interlocked.CompareExchange(ref _completed, 1, 0);
+        }
+
+        public Task Completion
+        {
+            get
+            {
+                var running = _outstandingTasks.Where(x => x.Status != TaskStatus.RanToCompletion)
+                .Where(x => x.Status != TaskStatus.Faulted)
+                .Where(x => x.Status != TaskStatus.Canceled)
+                .ToList();
+
+                return Task.WhenAll(running);
+            }
+        }
+    }
+
     public class SlimActionBlock<T>
     {
         public class Options
@@ -66,7 +128,10 @@ namespace Ffmpeg.TestDownloadPicsum
         public async Task Complete(bool forceComplete=false)
         {
             _isStop = true;
-            await Task.WhenAll(_subTask);
+           
+            await Task.WhenAll(_subTask.Where(x => x.Status != TaskStatus.RanToCompletion)
+               .Where(x => x.Status != TaskStatus.Faulted)
+               .Where(x => x.Status != TaskStatus.Canceled));
             await _task;
             
             if (forceComplete) { return; }
@@ -123,7 +188,11 @@ namespace Ffmpeg.TestDownloadPicsum
                 await Task.Delay(1);
             }
             Console.WriteLine($"{name}:{queueInput.Count} ");
-            await Task.WhenAll(allTask);
+          
+
+            await Task.WhenAll(allTask.Where(x => x.Status != TaskStatus.RanToCompletion)
+               .Where(x => x.Status != TaskStatus.Faulted)
+               .Where(x => x.Status != TaskStatus.Canceled));
             allSw.Stop();
             return allSw.ElapsedMilliseconds;
         }
