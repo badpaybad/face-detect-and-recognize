@@ -3,6 +3,7 @@ using Emgu.CV.Face;
 using Emgu.CV.Structure;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -13,11 +14,11 @@ namespace FaceDetectAndRecognize.Core
 {
     public class FaceRecognitionCombination
     {
+
         public class FaceDataTrain
         {
             public Image<Bgr, byte> Face;
             public int Identity;
-            public Rectangle FaceBound;
         }
 
         public class Result
@@ -35,9 +36,8 @@ namespace FaceDetectAndRecognize.Core
 
         List<FaceDataTrain> _originImageToTrain = new List<FaceDataTrain>();
 
-        List<FaceDataTrain> _originFaceDetectedToTrain = new List<FaceDataTrain>();
-        List<FaceDataTrain> _dataTrainAlign = new List<FaceDataTrain>();
-
+        List<FaceDetection.FaceWithEyeDetected> _originFaceDetectedToTrain = new List<FaceDetection.FaceWithEyeDetected>();
+    
         int _faceWidth;
         int _faceHeight;
 
@@ -45,6 +45,7 @@ namespace FaceDetectAndRecognize.Core
         {
             _eigenRecognizer = new EigenFaceRecognizer(80, double.PositiveInfinity);
             _lBPHFaceRecognizer = new LBPHFaceRecognizer(1, 8, 8, 8, 100);//50
+            // LBPHFaceRecognizer(1, 8, 8, 8, 123.0);
             _fisherFaceRecognizer = new FisherFaceRecognizer(0, 3500);//4000
         }
 
@@ -72,10 +73,11 @@ namespace FaceDetectAndRecognize.Core
                 foreach (var f1 in itemsOrg)
                 {
                     var f = f1;
-                    var found = DetectFace(f.Face);
-                    foreach (var i in found)
+                    var temp= DetectFace(f.Face);
+                    foreach(var t in temp)
                     {
-                        _originFaceDetectedToTrain.Add(new FaceDataTrain { Identity = f.Identity, Face = i.Key, FaceBound = i.Value });
+                        t.Identity = f.Identity;
+                        _originFaceDetectedToTrain.Add(t);
                     }
                 }
             }, 3);
@@ -90,17 +92,11 @@ namespace FaceDetectAndRecognize.Core
 
             BatchProcess.SplitToRun(groupBy, (itemsGroupBy) =>
             {
-                foreach (var f1 in itemsGroupBy)
+                foreach (var f in itemsGroupBy)
                 {
-                    var f = f1;
-
-                    foreach (var fa1 in f.Faces)
+                    foreach (var fa in f.Faces)
                     {
-                        var fa = fa1;
-                        var temp = AlignFace(fa.Face, _faceWidth, _faceHeight);
-
-                        _dataTrainAlign.Add(new FaceDataTrain { FaceBound = fa.FaceBound, Face = fa.Face, Identity = fa.Identity });
-                        data.Add(temp.Mat.IsContinuous ? temp.Mat : temp.Mat.Clone());
+                        data.Add(fa.FaceCropedAndAligned.Mat.IsContinuous ? fa.FaceCropedAndAligned.Mat : fa.FaceCropedAndAligned.Mat.Clone());
                         dataId.Add(fa.Identity);
                     }
                 }
@@ -146,65 +142,86 @@ namespace FaceDetectAndRecognize.Core
 
             if (_faceWidth == 0)
             {
-                _faceWidth = faces.Select(i => i.Key.Width).Sum() / faces.Count;
+                _faceWidth = faces.Select(i => i.Face.Width).Sum() / faces.Count;
             }
             if (_faceHeight == 0)
             {
-                _faceHeight = faces.Select(i => i.Key.Height).Sum() / faces.Count;
+                _faceHeight = faces.Select(i => i.Face.Height).Sum() / faces.Count;
             }
-            foreach (var f1 in faces)
-            {
-                var f = f1;
-                var temp = AlignFace(f.Key, _faceWidth, _faceHeight);
+            foreach (var f in faces)
+            {              
+                var fm = f.FaceCropedAndAligned.Mat.IsContinuous ? f.FaceCropedAndAligned.Mat : f.FaceCropedAndAligned.Mat.Clone();
 
-                var fm = temp.Mat.IsContinuous ? temp.Mat : temp.Mat.Clone();
                 results.Add(new Result
                 {
-                    Face = f.Key,
-                    FaceBound = f.Value,
+                    Face = f.Face,
+                    FaceBound = f.FaceBound,
                     EigenResult = _eigenRecognizer.Predict(fm),
                     LbphResult = _lBPHFaceRecognizer.Predict(fm),
                     FisherResult = new FisherFaceRecognizer.PredictionResult() //_fisherFaceRecognizer.Predict(fm)
                 });
             }
 
-
             return results;
         }
+               
 
-        public Image<Gray, byte> AlignFace(Image<Bgr, byte> src, int faceWidth, int faceHeight)
-        {
-            var temp = src.Resize(faceWidth, faceHeight, Emgu.CV.CvEnum.Inter.Cubic).Convert<Gray, byte>();
-            temp._EqualizeHist();
-            return temp;
-        }
-
-        public List<KeyValuePair<Image<Bgr, byte>, Rectangle>> DetectFace(Image<Bgr, byte> photo)
+        public List<FaceDetection.FaceWithEyeDetected> DetectFace(Image<Bgr, byte> photo)
         {
             using (FaceDetection _faceDetection = new FaceDetection())
             {
                 var faceInPhoto = _faceDetection.DetectByHaarCascade(photo);
                 // var faceInPhoto = _faceDetection.DetectByDnnCaffe(photo);
+                return faceInPhoto;
+                //var refilter = new List<KeyValuePair<Image<Bgr, byte>, Rectangle>>();
 
-                var refilter = new List<KeyValuePair<Image<Bgr, byte>, Rectangle>>();
+                //for (int i = 0; i < faceInPhoto.Count; i++)
+                //{
 
-                for (int i = 0; i < faceInPhoto.Count; i++)
-                {
-                    KeyValuePair<Image<Bgr, byte>, Rectangle> f = faceInPhoto[i];
-                    var detected = _faceDetection.DetectByDnnCaffe(f.Key, 0.50f);
+                //    KeyValuePair<Image<Bgr, byte>, Rectangle> f = faceInPhoto[i];
+                //    var detected = _faceDetection.DetectByDnnCaffe(f.Key, 0.50f);
 
-                    //f.Key.Save(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"_face_dnn_{i}_{Math.Abs(Guid.NewGuid().GetHashCode())}.png"));
+                //    //f.Key.Save(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"_face_dnn_{i}_{Math.Abs(Guid.NewGuid().GetHashCode())}.png"));
 
-                    if (detected.Count > 0)
-                    {
-                        refilter.Add(f);
-                    }
-                }
+                //    if (detected.Count > 0)
+                //    {
+                //        refilter.Add(f);
+                //    }
+                //}
 
-                return refilter;
+                //return refilter;
             }
         }
 
+        public void TestDrawFaceMark()
+        {
+            var fileface = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "sampledata/du.jpg");
+            var originImg = new Image<Bgr, byte>(fileface);
+
+            var faces = DetectFace(originImg);
+
+            var faceMarks = new FaceDetection().FaceMark(originImg, faces);
+
+            for (int i = 0; i < faces.Count; i++)
+            {
+                var f = faces[i];
+
+                FaceInvoke.DrawFacemarks(originImg, faceMarks[i], new Bgr(Color.Yellow).MCvScalar);
+            }
+
+            string fileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "faceMark.jpg");
+
+            originImg.Save(fileName);
+
+            OpenInBrowser(fileName);
+        }
+        public void OpenInBrowser(string file)
+        {
+            Process photoViewer = new Process();
+            photoViewer.StartInfo.FileName = @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe";
+            photoViewer.StartInfo.Arguments = file;
+            photoViewer.Start();
+        }
         public void Test(int schoolId)
         {
             var schoolDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"ko/{schoolId}");

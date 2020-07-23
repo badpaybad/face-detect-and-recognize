@@ -145,8 +145,6 @@ namespace Ffmpeg.TestDownloadPicsum
 
     class Program
     {
-
-
         static int w = 200;
         static int h = 300;
 
@@ -174,7 +172,7 @@ namespace Ffmpeg.TestDownloadPicsum
                         catch (Exception ex)
                         {
                             queueInput.Enqueue(objIn);
-                            Console.WriteLine($"{name} {ex.Message}");
+                            Console.WriteLine($"{name} error:{ex.Message}");
                         }
                         finally
                         {
@@ -184,16 +182,13 @@ namespace Ffmpeg.TestDownloadPicsum
 
                     allTask.Add(td);
                 }
-
                 await Task.Delay(1);
             }
-            Console.WriteLine($"{name}:{queueInput.Count} ");
-          
-
             await Task.WhenAll(allTask.Where(x => x.Status != TaskStatus.RanToCompletion)
-               .Where(x => x.Status != TaskStatus.Faulted)
-               .Where(x => x.Status != TaskStatus.Canceled));
+                    .Where(x => x.Status != TaskStatus.Faulted)
+                    .Where(x => x.Status != TaskStatus.Canceled));
             allSw.Stop();
+            Console.WriteLine($"{name} DONE remain:{queueInput.Count} ");
             return allSw.ElapsedMilliseconds;
         }
 
@@ -203,7 +198,7 @@ namespace Ffmpeg.TestDownloadPicsum
             ConcurrentQueue<byte[]> queueDownloaded = new ConcurrentQueue<byte[]>();
             ConcurrentQueue<byte[]> queueResized = new ConcurrentQueue<byte[]>();
 
-            var totalItem = 100;
+            var totalItem = 1000;
 
             for (var i = 0; i < totalItem; i++)
             {
@@ -214,16 +209,20 @@ namespace Ffmpeg.TestDownloadPicsum
             {
                 while (queueUrl.Count != 0 || queueDownloaded.Count != 0 || queueResized.Count != 0)
                 {
-                    Console.WriteLine($"url: {queueUrl.Count} download:{queueDownloaded.Count} resize:{queueResized.Count}");
+                    Console.WriteLine($"Queue remain url: {queueUrl.Count} download:{queueDownloaded.Count} resize:{queueResized.Count} thread count:{ThreadPool.ThreadCount}");
 
                     await Task.Delay(1000);
                 }
             });
 
+            var downloadParallel = 24*3;
+            var resizeParallel = 24;
+            var saveFileParallel = 24;
+
             var sw = Stopwatch.StartNew();
             var startTime = DateTime.Now;
 
-            var td = DoMaxParallelTask<string, byte[]>("Download", queueUrl, queueDownloaded, async (objIn) =>
+            var td = DoMaxParallelTask<string, byte[]>("Worker Download", queueUrl, queueDownloaded, async (objIn) =>
             {
                 //  Console.WriteLine($"Download Thread {ThreadPool.ThreadCount} ThreadId:{Thread.CurrentThread.ManagedThreadId}");
                 HttpClient httpClient = new HttpClient();
@@ -232,9 +231,9 @@ namespace Ffmpeg.TestDownloadPicsum
                 var r = await httpClient.GetByteArrayAsync(objIn);
                 queueDownloaded.Enqueue(r);
 
-            }, 96, totalItem);
+            }, downloadParallel, totalItem);
 
-            var tr = DoMaxParallelTask<byte[], byte[]>("Resize", queueDownloaded, queueResized, (objIn) =>
+            var tr = DoMaxParallelTask<byte[], byte[]>("Worker Resize", queueDownloaded, queueResized, (objIn) =>
             {
                 // Console.WriteLine($"Resize Thread {ThreadPool.ThreadCount} ThreadId:{Thread.CurrentThread.ManagedThreadId}");
                 var ms = new MemoryStream();
@@ -247,12 +246,12 @@ namespace Ffmpeg.TestDownloadPicsum
                     });
                 }
                 queueResized.Enqueue(ms.ToArray());
-            }, 48, totalItem);
+            }, resizeParallel, totalItem);
 
             var dirTemp = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
             if (Directory.Exists(dirTemp)) Directory.CreateDirectory(dirTemp);
 
-            var ts = DoMaxParallelTask("Save file", queueResized, (ConcurrentQueue<string>)null, (objIn) =>
+            var ts = DoMaxParallelTask("Worker Save file", queueResized, (ConcurrentQueue<string>)null, (objIn) =>
             {
                 //Console.WriteLine($"Save File Thread {ThreadPool.ThreadCount} ThreadId:{Thread.CurrentThread.ManagedThreadId}");
                 string filename = Path.Combine(dirTemp, $"{Guid.NewGuid()}.jpg");
@@ -270,7 +269,7 @@ namespace Ffmpeg.TestDownloadPicsum
                     Console.WriteLine($"All file save to disk {cfile} in {elasped}");
                 }
 
-            }, 96, totalItem);
+            }, saveFileParallel, totalItem);
 
             await Task.WhenAll(new List<Task> { td, tr, ts });
 
@@ -279,14 +278,8 @@ namespace Ffmpeg.TestDownloadPicsum
             await t;
 
             Console.WriteLine($"All in {sw.ElapsedMilliseconds}");
-
-
             Console.ReadLine();
-
-
         }
-
-
 
         static int _bufferDownload = 1024 * 4;
 
@@ -326,7 +319,6 @@ namespace Ffmpeg.TestDownloadPicsum
         Type _type;
         int _maxDoneJob;
         int _currentDoneJob;
-
 
         public WorkerKeepMaxRunning(string name, int maxDoneJob, Action<WorkerKeepMaxRunning> a, int maxParallel = 2, int sleep = 100
             , Action<WorkerKeepMaxRunning> onRelease = null

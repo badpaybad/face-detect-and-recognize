@@ -12,9 +12,13 @@ namespace FaceDetectAndRecognize.ConsoleFindInAlbum
     {
         static void Main(string[] args)
         {
+            //new FaceRecognitionCombination().TestDrawFaceMark();
+
+            //Console.ReadLine();
+            //return;
             Console.WriteLine("Hello World!");
 
-            var dirRoot = "C:/PublishGetDataForVideoKo/ko";// ConfigurationManager.AppSettings["DirRoot"];
+            var dirRoot = @"C:\work\face-detect-and-recognize\FaceDetectAndRecognize\FaceDetectAndRecognize.ConsoleFindInAlbum\bin\Debug\netcoreapp3.1\ko";// ConfigurationManager.AppSettings["DirRoot"];
             
             CreateDirIfNotExist(dirRoot);
 
